@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-03
 **Status:** Draft for review
-**Repos:** `ant-farm` (new — the instrument), `dialectic-plugin` (v2 — the first consumer)
+**Repos:** `ant-farm` (new — the instrument), `dialectic-plugin` (v2 — the first consumer), `keel` (second consumer — trace exhaust)
 
 ---
 
@@ -44,6 +44,7 @@ research already accepts for "we have heard all the themes."
 | **Atom** | One self-contained claim/consideration/evidence record. The unit of storage, embedding, and counting. |
 | **Vantage** | Sensor geometry for a trace: model family, persona, frame, starting hypothesis, round. Recorded so coverage claims can cite *where we looked*, not just what we found. |
 | **Farm** | One reasoning trace: a hypothesis explored through expand → refute → sublate rounds. |
+| **Transcript** | The ordered raw record of one farm's reasoning as it flowed, retained per farm — the behavioral complement to the atom layer. |
 | **Well** | The full corpus: every atom ever recorded, superseded and conceded included, fully traversable. Nothing is deleted. |
 | **View** | The computed HEAD: current best-confidence state, small and clean, the default retrieval target. |
 | **Map** | The rendered topology: basins, cruxes, ridges, holes. |
@@ -180,6 +181,25 @@ reasoning quality matters. Tier filtering is the fix: two Chroma collections (`v
 | Chroma `view` / `well` | embedded atom text + metadata filters (vantage, type, status, round) | coverage math ("same species" = embedding cluster), gap detection (low-density regions), dedup, retrieval |
 | Graph state (start: JSONL + NetworkX in scripts; Kùzu when queries earn it) | nodes + edges | centrality (cruxes), community detection (basins), un-sublated-undercutter queries, blast-radius propagation |
 | Obsidian render | one markdown page per view node, `[[wikilinks]]` for edges | free human map UI |
+| Farm transcripts | ordered raw turns per farm (JSONL), vantage manifest header | blind-critic input; keel export substrate (§9.2) |
+
+### 4.5 Farm transcripts (retained raw)
+
+Each farm's transcript — the round-by-round reasoning as it flowed, one turn per
+record — is a **first-class retained artifact**, not a disposable render. Atoms are the
+analytical layer; the transcript is the behavioral record, and it is the only place the
+farm's long-context reasoning survives (a graph of claims has no sequence, hence no
+geometry). Two consumers already require it: the blind-critic reads it as an authorless
+external document (§3), and keel measures activation geometry over it (§9.2).
+
+Format: vantage as the manifest header; turns carry a total order. Field mapping targets
+keel's existing `traces/` schema directly — `{turn, role, phase, iteration, content}`
+with round → `iteration` and move type (sublate | expand | compress | critique) →
+`phase` — so keel consumes farm transcripts with zero adaptation.
+
+Retention note: dialectic v1 transcripts are keel's only current substrate, and v2
+deletes v1. Without this artifact, shipping ant-farm would extinguish keel's data
+source; with it, every survey run is also a corpus contribution.
 
 ---
 
@@ -231,8 +251,9 @@ largest holes** (empty Zwicky cells, low-density embedding regions, hole-finder 
 active learning over argument space. Else finalize.
 
 **Phase 7 — Materialize.** Reducer rebuilds view; curator renders map + Obsidian export;
-tripwires from falsification triggers and `revisit_when` conditions are registered as
-standing sentinel queries.
+farm transcripts written with vantage manifests and outcome metadata (the keel export,
+§9.2); tripwires from falsification triggers and `revisit_when` conditions are
+registered as standing sentinel queries.
 
 ---
 
@@ -311,7 +332,9 @@ R/E/C as probabilities.
 
 ---
 
-## 9. Consumer seam: dialectic-plugin v2
+## 9. Consumer seams
+
+### 9.1 dialectic-plugin v2 (the advocate)
 
 dialectic-plugin v2 becomes ant-farm's first client. Changes:
 
@@ -330,6 +353,50 @@ dialectic-plugin v2 becomes ant-farm's first client. Changes:
   executable instruction; imperative/positive/present; emphasis by position, not caps;
   one concrete example over three adjectives; one term per concept. Enforced by a
   prose-reviewer pass over every rewritten file.
+
+### 9.2 keel (the geometer)
+
+[keel](https://github.com/AustinSalter/keel) asks whether activation geometry can
+distinguish coherent multi-turn reasoning from degraded reasoning, without generating
+text. ant-farm is a **corpus source** for keel — nothing more in v1.
+
+**Design rule: instrument/measure independence.** ant-farm is optimized for coverage,
+never for keel's metric — keel's evidence is credible precisely because its stimuli come
+from a system with a different objective. Symmetrically, keel keeps non-ant-farm trace
+sources: a measure validated only on sublation-shaped traces would make "damping =
+coherence" near-tautological, since the sublation loop damps by construction.
+
+**What the exhaust gives keel that it has never had:** N parallel traces on the *same
+question*, stratified by family/persona/round — within-question variation with question
+fixed effects. Vantage is the covariate set; keel's current corpus (four sessions, four
+topics) confounds topic with coherence.
+
+**Export contract** (per farm, written at Phase 7):
+
+- `trace.jsonl` in keel's `traces/` schema (§4.5 field mapping), vantage manifest as
+  `stats.json`.
+- Outcome metadata: farm decision (CONCLUDE | CONCEDE | ELEVATE), degeneration-ledger
+  state, verification stats.
+
+**Label discipline.** CONCEDE is a dialectical outcome, not a structural label — a farm
+that tracks its thesis and honestly abandons it is highly germane; never export it as
+degraded. **Coherent-but-wrong** (keel's Sprint 2.6 gap) = CONCLUDE with a clean ledger
+whose conclusion is later refuted by verified evidence on the map — exported as
+`coherence_label: coherent_refuted`. All outcome labels are model-judged; geometry
+validated against them alone measures agreement with LLM-as-judge — the thing keel
+exists to replace. Which is why the primary offering is:
+
+**Counterfactual generator** (deliverable: a small script over retained transcripts —
+ground truth by construction, no judge):
+
+- **shuffle** — permute turns (keel's existing negative control).
+- **graft** — splice rounds from a sibling farm on the same question: same topic, same
+  vocabulary, locally coherent, thesis-discontinuous. The hardest possible D2 probe.
+- **persona-swap** — regenerate rounds k..n under a different persona mid-farm.
+
+**Non-goal (v1):** keel does not gate, filter, rank, or score anything inside the
+ant-farm pipeline. Wiring keel in before it validates against the counterfactual set
+creates a closed loop — keel gating the traces that later validate keel. Deferred (§12).
 
 ---
 
@@ -365,7 +432,9 @@ completed work, resume with cached results.
 
 Walton scheme library; Neo4j; multi-provider model routing beyond what the workflow
 runtime exposes; a web UI for the map (Obsidian render is the v1 map UI); automated
-cross-question transfer beyond neighborhood retrieval.
+cross-question transfer beyond neighborhood retrieval; keel as an in-pipeline
+coherence sensor (generation-free farm ranking, late-atom gating for the Phase 4
+verification floor) — only after keel validates against the §9.2 counterfactual set.
 
 ## 13. Open questions
 

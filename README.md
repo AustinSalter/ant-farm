@@ -13,6 +13,11 @@ loop, distill, forge) occupy positions on the map and argue for them.
 > **ant-farm surveys; dialectic advocates.** A reasoning session is disposable; a survey
 > corpus is an asset that improves with every run.
 
+A second consumer reads the exhaust: [keel](https://github.com/AustinSalter/keel)
+measures activation-geometric coherence over the retained farm transcripts (spec §9.2).
+The seam is deliberately thin — ant-farm is optimized for coverage, never for keel's
+metric, so keel's stimuli stay independent of its measure.
+
 ## Status
 
 Design phase. The full design lives in
@@ -41,6 +46,7 @@ Survey/cartography metaphor throughout.
 | **atom** | One self-contained claim/consideration/evidence record. The unit of storage, embedding, counting. |
 | **vantage** | Sensor geometry for a trace: model family, persona, frame, starting hypothesis, round. |
 | **farm** | One reasoning trace: a hypothesis explored through expand → refute → sublate rounds. |
+| **transcript** | The ordered raw record of one farm's reasoning, retained per farm — blind-critic input and keel's substrate. |
 | **well** | The full corpus: every atom ever recorded, superseded and conceded included. Nothing deleted. |
 | **view** | The computed HEAD: current best-confidence state, small and clean, the default retrieval target. |
 | **map** | The rendered topology: basins, cruxes, ridges, holes. |
