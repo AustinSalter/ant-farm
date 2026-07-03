@@ -21,8 +21,12 @@
 - **keel export schema is exact:** `{"turn", "role", "phase", "iteration", "content"}` per line, vantage manifest in `stats.json` (spec §4.5, §9.2).
 - **Label discipline:** CONCEDE is a dialectical outcome, never exported as degraded; coherent-but-wrong = CONCLUDE later refuted ⇒ `coherence_label: "coherent_refuted"` (spec §9.2).
 - **Re-found ≠ duplicate:** entailment-matched atoms increment `sightings` and attach the vantage (spec §4.2).
-- Event filenames must sort chronologically (zero-padded round/phase prefixes, e.g. `p2-farmA-r01.jsonl`) — the reducer replays in filename order.
+- Event filenames AND run directory names must sort chronologically (zero-padded: run dirs `r0001`, files `p2-farmA-r01.jsonl`) — the reducer replays in sorted path order. The reducer additionally defers `supersedes`/`status` events whose target node hasn't been seen yet and re-applies them after the fold, so cross-file ordering can never silently drop a supersession.
+- The reducer is a total fold: an unknown event kind raises, never silently skips.
 - Tests marked `@pytest.mark.eval` use real embedding models (slow, downloads); default `pytest` run excludes them.
+- Run `uv run ruff check src tests` before every commit (auto-fix with `--fix`); it must pass clean.
+- Use `X | None` union syntax, never `Optional[X]` (Python ≥3.12, ruff `UP` enforces).
+- Shared test builders live in `tests/helpers.py` (created in Task 2) — never re-declare the vantage/node builders inside a test file.
 
 ---
 
@@ -55,7 +59,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.5", "mypy>=1.10"]
 
 [build-system]
 requires = ["hatchling"]
@@ -67,6 +71,27 @@ packages = ["src/antfarm"]
 [tool.pytest.ini_options]
 addopts = "-m 'not eval'"
 markers = ["eval: evaluation tests using real embedding models (slow, downloads)"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+disallow_untyped_defs = true
+warn_return_any = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = ["chromadb.*", "networkx.*"]
+ignore_missing_imports = true
 ```
 
 Create empty `src/antfarm/__init__.py`, then run: `uv sync`
@@ -147,8 +172,9 @@ def atom_id(node_type: str, text: str) -> str:
     return f"{ID_PREFIX[node_type]}-{digest[:12]}"
 
 
+# "that" is deliberately absent: "That solar is cheap is well documented" is self-contained
 _UNRESOLVED = re.compile(
-    r"^(it|this|that|they|these|those|he|she)\b"
+    r"^(it|this|they|these|those|he|she)\b"
     r"|\b(the above|the former|the latter|as mentioned|as noted)\b",
     re.IGNORECASE,
 )
@@ -166,6 +192,7 @@ Expected: 6 passed
 - [ ] **Step 6: Commit**
 
 ```bash
+uv run ruff check src tests
 git add pyproject.toml uv.lock src/antfarm tests/test_schema.py
 git commit -m "feat: scaffold antfarm package with content-hash ids and self-containedness validator"
 ```
@@ -176,59 +203,77 @@ git commit -m "feat: scaffold antfarm package with content-hash ids and self-con
 
 **Files:**
 - Modify: `src/antfarm/schema.py` (append)
+- Create: `tests/helpers.py` (shared test builders — all later test files import from here)
 - Test: `tests/test_schema.py` (append)
 
 **Interfaces:**
 - Consumes: Task 1's `atom_id`, `is_self_contained`, type aliases
-- Produces: `Vantage(run, farm, family, persona, round: int, sensor: Literal["model","human"])`; `Node` (fields exactly as spec §4.1: `id, type, text, vantage, status, superseded_by, strength, diagnosticity, verified, sightings, question_id, ts`) with classmethod `Node.create(*, type, text, vantage, question_id, ts, **kwargs) -> Node` that computes `id`; `Edge(src, dst, rel, warrant, consistency, vantage, ts)`
+- Produces: `Vantage(run, farm, family, persona, round: int, sensor: Literal["model","human"])`; `Node` (fields exactly as spec §4.1: `id, type, text, vantage, status, superseded_by, strength, diagnosticity, verified, sightings, question_id, ts`) with classmethod `Node.create(*, type, text, vantage, question_id, ts, **kwargs) -> Node` that computes `id`; `Edge(src, dst, rel, warrant, consistency, vantage, ts)`; test builders `helpers.V`, `helpers.make_vantage(**overrides) -> Vantage`, `helpers.make_node(text, *, type="claim", vantage=V, **kwargs) -> Node`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the shared test builders**
+
+`tests/helpers.py` (a plain module — pytest puts `tests/` on `sys.path`, so test files do `from helpers import ...`):
+
+```python
+"""Shared test builders. Import these; never re-declare them in a test file."""
+
+from antfarm.schema import Node, Vantage
+
+
+def make_vantage(**overrides) -> Vantage:
+    defaults = dict(run="r1", farm="A", family="claude", persona="analyst",
+                    round=1, sensor="model")
+    return Vantage(**{**defaults, **overrides})
+
+
+V = make_vantage()
+
+
+def make_node(text: str, *, type: str = "claim", vantage: Vantage = V, **kwargs) -> Node:
+    return Node.create(type=type, text=text, vantage=vantage,
+                       question_id="q-1", ts="2026-07-03T00:00:00Z", **kwargs)
+```
+
+- [ ] **Step 2: Write the failing test**
 
 Append to `tests/test_schema.py`:
 
 ```python
 import pytest
+from helpers import V, make_node
 from pydantic import ValidationError
 
-from antfarm.schema import Edge, Node, Vantage
+from antfarm.schema import Edge, Node
 
-V = Vantage(run="r1", farm="A", family="claude", persona="procurement manager",
-            round=1, sensor="model")
-
-
-def _node(**kw):
-    defaults = dict(type="claim", text="Solar LCOE fell 90% between 2010 and 2020.",
-                    vantage=V, question_id="q-1", ts="2026-07-03T00:00:00Z")
-    defaults.update(kw)
-    return Node.create(**defaults)
+TEXT = "Solar LCOE fell 90% between 2010 and 2020."
 
 
 def test_create_computes_content_hash_id():
-    n = _node()
+    n = make_node(TEXT)
     assert n.id.startswith("c-") and len(n.id) == 14
-    assert n.id == _node().id  # stable across runs
+    assert n.id == make_node(TEXT).id  # stable across runs
 
 
 def test_node_rejects_non_self_contained_text():
     with pytest.raises(ValidationError):
-        _node(text="This proves the thesis.")
+        make_node("This proves the thesis.")
 
 
 def test_node_rejects_tampered_id():
-    n = _node()
+    n = make_node(TEXT)
     with pytest.raises(ValidationError):
         Node(**{**n.model_dump(), "id": "c-000000000000"})
 
 
 def test_strength_only_on_evidence():
     with pytest.raises(ValidationError):
-        _node(strength=4)  # type=claim
-    e = _node(type="evidence", strength=4)
+        make_node(TEXT, strength=4)  # type=claim
+    e = make_node(TEXT, type="evidence", strength=4)
     assert e.strength == 4
 
 
 def test_node_defaults():
-    n = _node()
+    n = make_node(TEXT)
     assert n.status == "live" and n.verified is False and n.sightings == 1
 
 
@@ -249,18 +294,16 @@ def test_consistency_only_on_scored_against():
     assert ok.consistency == "inconsistent"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 3: Run test to verify it fails**
 
 Run: `uv run pytest tests/test_schema.py -v`
-Expected: FAIL with `ImportError: cannot import name 'Node'`
+Expected: FAIL with `ImportError: cannot import name 'Node'` (raised via `helpers.py`)
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 4: Write minimal implementation**
 
 Append to `src/antfarm/schema.py`:
 
 ```python
-from typing import Optional
-
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -279,9 +322,9 @@ class Node(BaseModel):
     text: str
     vantage: Vantage
     status: NodeStatus = "live"
-    superseded_by: Optional[str] = None
-    strength: Optional[int] = Field(default=None, ge=1, le=5)
-    diagnosticity: Optional[Literal["high", "med", "none"]] = None
+    superseded_by: str | None = None
+    strength: int | None = Field(default=None, ge=1, le=5)
+    diagnosticity: Literal["high", "med", "none"] | None = None
     verified: bool = False
     sightings: int = 1
     question_id: str
@@ -313,8 +356,8 @@ class Edge(BaseModel):
     src: str
     dst: str
     rel: EdgeRel
-    warrant: Optional[str] = None
-    consistency: Optional[Literal["consistent", "inconsistent", "neutral"]] = None
+    warrant: str | None = None
+    consistency: Literal["consistent", "inconsistent", "neutral"] | None = None
     vantage: Vantage
     ts: str
 
@@ -327,15 +370,16 @@ class Edge(BaseModel):
         return self
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 5: Run test to verify it passes**
 
 Run: `uv run pytest tests/test_schema.py -v`
 Expected: 13 passed
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/antfarm/schema.py tests/test_schema.py
+uv run ruff check src tests
+git add src/antfarm/schema.py tests/helpers.py tests/test_schema.py
 git commit -m "feat: Node and Edge schemas with warrant and self-containedness invariants"
 ```
 
@@ -356,20 +400,15 @@ git commit -m "feat: Node and Edge schemas with warrant and self-containedness i
 `tests/test_events.py`:
 
 ```python
+from helpers import V, make_node
+
 from antfarm.events import append_events, edge_event, node_event, read_events, status_event
-from antfarm.schema import Edge, Node, Vantage
-
-V = Vantage(run="r1", farm="A", family="claude", persona="analyst", round=1, sensor="model")
-
-
-def _node(text):
-    return Node.create(type="claim", text=text, vantage=V,
-                       question_id="q-1", ts="2026-07-03T00:00:00Z")
+from antfarm.schema import Edge
 
 
 def test_roundtrip_and_append_only(tmp_path):
-    run_dir = tmp_path / "r1"
-    n = _node("Solar LCOE fell 90% between 2010 and 2020.")
+    run_dir = tmp_path / "r0001"
+    n = make_node("Solar LCOE fell 90% between 2010 and 2020.")
     e = Edge(src=n.id, dst="h-000000000001", rel="rebuts", vantage=V, ts="2026-07-03T00:00:00Z")
 
     append_events(run_dir, "p2-farmA-r01", [node_event(n)])
@@ -381,8 +420,8 @@ def test_roundtrip_and_append_only(tmp_path):
 
 
 def test_replay_order_is_sorted_path_order(tmp_path):
-    append_events(tmp_path / "r1", "p2-farmB-r01", [status_event("h-1", "contested", ts="t")])
-    append_events(tmp_path / "r1", "p1-framing", [status_event("h-1", "live", ts="t")])
+    append_events(tmp_path / "r0001", "p2-farmB-r01", [status_event("h-1", "contested", ts="t")])
+    append_events(tmp_path / "r0001", "p1-framing", [status_event("h-1", "live", ts="t")])
     kinds = [ev["payload"]["status"] for ev in read_events(tmp_path)]
     assert kinds == ["live", "contested"]  # p1 file replays before p2 file
 
@@ -448,6 +487,7 @@ Expected: 3 passed
 - [ ] **Step 5: Commit**
 
 ```bash
+uv run ruff check src tests
 git add src/antfarm/events.py tests/test_events.py
 git commit -m "feat: append-only JSONL event log with deterministic replay order"
 ```
@@ -461,63 +501,87 @@ git commit -m "feat: append-only JSONL event log with deterministic replay order
 - Test: `tests/test_reduce.py`
 
 **Interfaces:**
-- Consumes: `Node`, `Edge`, `Vantage` from `antfarm.schema`; event dicts shaped by Task 3
-- Produces: `CorpusNode` (a `Node` subclass adding `vantages: list[Vantage]` and `died_because: str | None`); `Corpus(nodes: dict[str, CorpusNode], edges: list[Edge])` (pydantic model); `reduce_events(events: list[dict], matcher=None) -> Corpus` where `matcher` is any object with `find_match(node: Node, nodes: dict[str, CorpusNode]) -> str | None` (Task 5 supplies one; `None` means exact-id merge only)
+- Consumes: `Node`, `Edge`, `Vantage` from `antfarm.schema`; event dicts shaped by Task 3; `helpers.make_node`, `helpers.make_vantage`
+- Produces: `CorpusNode` (a `Node` subclass adding `vantages: list[Vantage]` and `died_because: str | None`); `Corpus(nodes: dict[str, CorpusNode], edges: list[Edge])` (pydantic model); `reduce_events(events: list[dict], matcher=None) -> Corpus` where `matcher` is any object with `find_match(node: Node, nodes: dict[str, CorpusNode]) -> str | None` (Task 5 supplies one; `None` means exact-id merge only). The fold is total (unknown kind raises `ValueError`) and order-tolerant (`supersedes`/`status` events targeting not-yet-seen nodes are deferred and re-applied after the fold).
 
 - [ ] **Step 1: Write the failing test**
 
 `tests/test_reduce.py`:
 
 ```python
+import pytest
+from helpers import V, make_node, make_vantage
+
 from antfarm.events import edge_event, node_event, status_event
 from antfarm.reduce import reduce_events
-from antfarm.schema import Edge, Node, Vantage
+from antfarm.schema import Edge
 
-V1 = Vantage(run="r1", farm="A", family="claude", persona="analyst", round=1, sensor="model")
-V2 = Vantage(run="r1", farm="B", family="gpt", persona="skeptic", round=1, sensor="model")
-
-
-def _node(text, vantage=V1, **kw):
-    return Node.create(type="claim", text=text, vantage=vantage,
-                       question_id="q-1", ts="2026-07-03T00:00:00Z", **kw)
+V2 = make_vantage(farm="B", family="gpt", persona="skeptic")
 
 
 def test_new_node_enters_with_one_vantage():
-    n = _node("Grid storage is the binding constraint on solar buildout.")
+    n = make_node("Grid storage is the binding constraint on solar buildout.")
     corpus = reduce_events([node_event(n)])
     cn = corpus.nodes[n.id]
-    assert cn.sightings == 1 and cn.vantages == [V1]
+    assert cn.sightings == 1 and cn.vantages == [V]
 
 
 def test_refound_node_is_observation_not_duplicate():
-    a = _node("Grid storage is the binding constraint on solar buildout.", V1)
-    b = _node("Grid storage is the binding constraint on solar buildout.", V2, verified=True)
+    a = make_node("Grid storage is the binding constraint on solar buildout.")
+    b = make_node("Grid storage is the binding constraint on solar buildout.",
+                  vantage=V2, verified=True)
     corpus = reduce_events([node_event(a), node_event(b)])
     assert len(corpus.nodes) == 1
     cn = corpus.nodes[a.id]
     assert cn.sightings == 2
-    assert cn.vantages == [V1, V2]
+    assert cn.vantages == [V, V2]
     assert cn.verified is True  # verification upgrades, never downgrades
 
 
+def test_observation_upgrades_strength_and_diagnosticity():
+    a = make_node("Battery cost curves bound solar deployment.", type="evidence",
+                  strength=2, diagnosticity="med")
+    b = make_node("Battery cost curves bound solar deployment.", type="evidence",
+                  vantage=V2, strength=4, diagnosticity="high")
+    corpus = reduce_events([node_event(a), node_event(b)])
+    cn = corpus.nodes[a.id]
+    assert cn.strength == 4 and cn.diagnosticity == "high"
+
+
 def test_supersedes_edge_marks_old_node_without_deletion():
-    old = _node("Coal plants retire on a 40-year schedule.")
-    new = _node("Coal plants retire on a 30-year schedule after IRA incentives.")
-    sup = Edge(src=new.id, dst=old.id, rel="supersedes", vantage=V1, ts="t")
+    old = make_node("Coal plants retire on a 40-year schedule.")
+    new = make_node("Coal plants retire on a 30-year schedule after IRA incentives.")
+    sup = Edge(src=new.id, dst=old.id, rel="supersedes", vantage=V, ts="t")
     corpus = reduce_events([node_event(old), node_event(new), edge_event(sup)])
     assert corpus.nodes[old.id].status == "superseded"
     assert corpus.nodes[old.id].superseded_by == new.id
     assert old.id in corpus.nodes  # never deleted
 
 
+def test_supersedes_arriving_before_its_target_still_applies():
+    # cross-file replay order can deliver the edge before the node (spec: append-only,
+    # order-tolerant fold) - the reducer must defer and re-apply, never silently drop
+    old = make_node("Coal plants retire on a 40-year schedule.")
+    new = make_node("Coal plants retire on a 30-year schedule after IRA incentives.")
+    sup = Edge(src=new.id, dst=old.id, rel="supersedes", vantage=V, ts="t")
+    corpus = reduce_events([edge_event(sup), node_event(old), node_event(new)])
+    assert corpus.nodes[old.id].status == "superseded"
+    assert corpus.nodes[old.id].superseded_by == new.id
+
+
 def test_conceded_stays_on_map_with_died_because():
-    h = _node("Fusion arrives before 2035 at grid scale.")
+    h = make_node("Fusion arrives before 2035 at grid scale.")
     corpus = reduce_events([
         node_event(h),
         status_event(h.id, "conceded", ts="t", died_because="no surviving evidence path"),
     ])
     assert corpus.nodes[h.id].status == "conceded"
     assert corpus.nodes[h.id].died_because == "no surviving evidence path"
+
+
+def test_unknown_event_kind_raises():
+    with pytest.raises(ValueError, match="unknown event kind"):
+        reduce_events([{"kind": "telemetry", "payload": {}}])
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -534,6 +598,8 @@ from pydantic import BaseModel, Field
 
 from antfarm.schema import Edge, Node, Vantage
 
+_DIAG_RANK = {None: 0, "none": 1, "med": 2, "high": 3}
+
 
 class CorpusNode(Node):
     vantages: list[Vantage] = Field(default_factory=list)
@@ -549,10 +615,33 @@ def _observe(existing: CorpusNode, incoming: Node) -> None:
     existing.sightings += 1
     existing.vantages.append(incoming.vantage)
     existing.verified = existing.verified or incoming.verified
+    if incoming.strength is not None:
+        existing.strength = max(existing.strength or 0, incoming.strength)
+    if _DIAG_RANK[incoming.diagnosticity] > _DIAG_RANK[existing.diagnosticity]:
+        existing.diagnosticity = incoming.diagnosticity
+
+
+def _apply_supersede(corpus: Corpus, edge: Edge) -> bool:
+    old = corpus.nodes.get(edge.dst)
+    if old is None:
+        return False
+    old.status = "superseded"
+    old.superseded_by = edge.src
+    return True
+
+
+def _apply_status(corpus: Corpus, payload: dict) -> bool:
+    target = corpus.nodes.get(payload["id"])
+    if target is None:
+        return False
+    target.status = payload["status"]
+    target.died_because = payload.get("died_because") or target.died_because
+    return True
 
 
 def reduce_events(events: list[dict], matcher=None) -> Corpus:
     corpus = Corpus()
+    deferred: list[dict] = []  # supersedes/status whose target node hasn't been seen yet
     for ev in events:
         kind, payload = ev["kind"], ev["payload"]
         if kind == "node":
@@ -567,26 +656,30 @@ def reduce_events(events: list[dict], matcher=None) -> Corpus:
         elif kind == "edge":
             edge = Edge.model_validate(payload)
             corpus.edges.append(edge)
-            if edge.rel == "supersedes" and edge.dst in corpus.nodes:
-                old = corpus.nodes[edge.dst]
-                old.status = "superseded"
-                old.superseded_by = edge.src
+            if edge.rel == "supersedes" and not _apply_supersede(corpus, edge):
+                deferred.append(ev)
         elif kind == "status":
-            target = corpus.nodes.get(payload["id"])
-            if target is not None:
-                target.status = payload["status"]
-                target.died_because = payload.get("died_because") or target.died_because
+            if not _apply_status(corpus, payload):
+                deferred.append(ev)
+        else:
+            raise ValueError(f"unknown event kind: {kind!r}")
+    for ev in deferred:
+        if ev["kind"] == "edge":
+            _apply_supersede(corpus, Edge.model_validate(ev["payload"]))
+        else:
+            _apply_status(corpus, ev["payload"])
     return corpus
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/test_reduce.py -v`
-Expected: 4 passed
+Expected: 7 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
+uv run ruff check src tests
 git add src/antfarm/reduce.py tests/test_reduce.py
 git commit -m "feat: deterministic reducer with observation merge and supersession-without-deletion"
 ```
@@ -609,13 +702,11 @@ git commit -m "feat: deterministic reducer with observation merge and supersessi
 
 ```python
 import pytest
+from helpers import make_node
 
 from antfarm.cluster import EmbeddingMatcher, cosine, entailment_clusters
 from antfarm.events import node_event
 from antfarm.reduce import reduce_events
-from antfarm.schema import Node, Vantage
-
-V = Vantage(run="r1", farm="A", family="claude", persona="analyst", round=1, sensor="model")
 
 # Deterministic fake: identical vector for texts sharing a canned key, orthogonal otherwise.
 _CANNED = {
@@ -629,19 +720,14 @@ def fake_embed(texts: list[str]) -> list[list[float]]:
     return [_CANNED[t.lower()] for t in texts]
 
 
-def _node(text, node_type="claim"):
-    return Node.create(type=node_type, text=text, vantage=V,
-                       question_id="q-1", ts="2026-07-03T00:00:00Z")
-
-
 def test_cosine():
     assert cosine([1.0, 0.0], [1.0, 0.0]) == pytest.approx(1.0)
     assert cosine([1.0, 0.0], [0.0, 1.0]) == pytest.approx(0.0)
 
 
 def test_paraphrase_merges_as_observation():
-    a = _node("Grid storage is the binding constraint on solar buildout.")
-    b = _node("Storage capacity, not panel cost, now limits solar deployment.")
+    a = make_node("Grid storage is the binding constraint on solar buildout.")
+    b = make_node("Storage capacity, not panel cost, now limits solar deployment.")
     matcher = EmbeddingMatcher(fake_embed, threshold=0.85)
     corpus = reduce_events([node_event(a), node_event(b)], matcher=matcher)
     assert len(corpus.nodes) == 1
@@ -649,16 +735,17 @@ def test_paraphrase_merges_as_observation():
 
 
 def test_distinct_claim_does_not_merge():
-    a = _node("Grid storage is the binding constraint on solar buildout.")
-    b = _node("Coal plants retire on a 40-year schedule.")
+    a = make_node("Grid storage is the binding constraint on solar buildout.")
+    b = make_node("Coal plants retire on a 40-year schedule.")
     matcher = EmbeddingMatcher(fake_embed, threshold=0.85)
     corpus = reduce_events([node_event(a), node_event(b)], matcher=matcher)
     assert len(corpus.nodes) == 2
 
 
 def test_never_matches_across_types():
-    a = _node("Grid storage is the binding constraint on solar buildout.")
-    b = _node("Storage capacity, not panel cost, now limits solar deployment.", "evidence")
+    a = make_node("Grid storage is the binding constraint on solar buildout.")
+    b = make_node("Storage capacity, not panel cost, now limits solar deployment.",
+                  type="evidence")
     matcher = EmbeddingMatcher(fake_embed, threshold=0.85)
     corpus = reduce_events([node_event(a), node_event(b)], matcher=matcher)
     assert len(corpus.nodes) == 2
@@ -774,6 +861,7 @@ Expected: 1 passed (first run downloads the default ONNX embedding model). If a 
 - [ ] **Step 6: Commit**
 
 ```bash
+uv run ruff check src tests
 git add src/antfarm/cluster.py tests/test_cluster.py
 git commit -m "feat: entailment matcher and clustering with merge-fidelity eval"
 ```
@@ -784,56 +872,70 @@ git commit -m "feat: entailment matcher and clustering with merge-fidelity eval"
 
 **Files:**
 - Create: `src/antfarm/graph.py`
+- Modify: `tests/helpers.py` (add `make_corpus_node`, `make_edge` — `antfarm.reduce` exists as of Task 4)
 - Test: `tests/test_graph.py`
 
 **Interfaces:**
 - Consumes: `Corpus`, `CorpusNode`, `Edge` from Task 4
-- Produces: `build_graph(corpus: Corpus) -> nx.MultiDiGraph`; `centrality(g: nx.MultiDiGraph) -> dict[str, float]`; `extract_cruxes(corpus: Corpus, cent: dict[str, float], top_k: int = 5) -> list[str]`; `unsublated_undercutters(corpus: Corpus) -> list[tuple[str, str]]`; `blast_radius(g: nx.MultiDiGraph, node_id: str) -> set[str]`
+- Produces: `build_graph(corpus: Corpus) -> nx.MultiDiGraph`; `compute_centrality(g: nx.MultiDiGraph) -> dict[str, float]`; `extract_cruxes(corpus: Corpus, cent: dict[str, float], top_k: int = 5) -> list[str]`; `answered_challengers(corpus: Corpus) -> set[str]` (challengers themselves rebutted/superseded/qualified — Task 11's render reuses this); `find_unsublated_undercutters(corpus: Corpus) -> list[tuple[str, str]]`; `blast_radius(g: nx.MultiDiGraph, node_id: str) -> set[str]`; test builders `helpers.make_corpus_node(text, *, type="claim", **kwargs) -> CorpusNode`, `helpers.make_edge(src, dst, rel, **kwargs) -> Edge`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Extend the shared test builders**
+
+Append to `tests/helpers.py`:
+
+```python
+from antfarm.reduce import CorpusNode
+from antfarm.schema import Edge, atom_id
+
+
+def make_corpus_node(text: str, *, type: str = "claim", **kwargs) -> CorpusNode:
+    nid = atom_id(type, text)
+    return CorpusNode(id=nid, type=type, text=text, vantage=V, vantages=[V],
+                      question_id="q-1", ts="t", **kwargs)
+
+
+def make_edge(src: str, dst: str, rel: str, **kwargs) -> Edge:
+    return Edge(src=src, dst=dst, rel=rel, vantage=V, ts="t", **kwargs)
+```
+
+(Move the import lines to the top of `helpers.py` with the existing imports.)
+
+- [ ] **Step 2: Write the failing test**
 
 `tests/test_graph.py`:
 
 ```python
-from antfarm.graph import (blast_radius, build_graph, centrality,
-                           extract_cruxes, unsublated_undercutters)
-from antfarm.reduce import Corpus, CorpusNode
-from antfarm.schema import Edge, Vantage, atom_id
+from helpers import make_corpus_node, make_edge
 
-V = Vantage(run="r1", farm="A", family="claude", persona="analyst", round=1, sensor="model")
-
-
-def _cn(text, node_type="claim", **kw):
-    nid = atom_id(node_type, text)
-    return nid, CorpusNode(id=nid, type=node_type, text=text, vantage=V, vantages=[V],
-                           question_id="q-1", ts="t", **kw)
-
-
-def _edge(src, dst, rel, **kw):
-    return Edge(src=src, dst=dst, rel=rel, vantage=V, ts="t", **kw)
+from antfarm.graph import (blast_radius, build_graph, compute_centrality,
+                           extract_cruxes, find_unsublated_undercutters)
+from antfarm.reduce import Corpus
 
 
 def _corpus():
-    a_id, a = _cn("Solar deployment doubles every three years.")
-    b_id, b = _cn("Grid storage capacity limits solar deployment growth.", status="contested")
-    c_id, c = _cn("Battery costs fall 15% per doubling of production.")
-    d_id, d = _cn("Undercutting: deployment statistics conflate contracted and installed capacity.")
-    corpus = Corpus(nodes={a_id: a, b_id: b, c_id: c, d_id: d}, edges=[
-        _edge(a_id, b_id, "depends_on"),
-        _edge(b_id, c_id, "depends_on"),
-        _edge(d_id, a_id, "undercuts"),
+    a = make_corpus_node("Solar deployment doubles every three years.")
+    b = make_corpus_node("Grid storage capacity limits solar deployment growth.",
+                         status="contested")
+    c = make_corpus_node("Battery costs fall 15% per doubling of production.")
+    d = make_corpus_node("Deployment statistics conflate contracted and installed capacity.")
+    f = make_corpus_node("Permitting queues are a second-order constraint on solar buildout.",
+                         status="contested")
+    corpus = Corpus(nodes={n.id: n for n in (a, b, c, d, f)}, edges=[
+        make_edge(a.id, b.id, "depends_on"),
+        make_edge(b.id, c.id, "depends_on"),
+        make_edge(d.id, a.id, "undercuts"),
     ])
-    return corpus, a_id, b_id, c_id, d_id
+    return corpus, a.id, b.id, c.id, d.id, f.id
 
 
 def test_build_graph_has_all_nodes_and_edges():
     corpus, *_ = _corpus()
     g = build_graph(corpus)
-    assert g.number_of_nodes() == 4 and g.number_of_edges() == 3
+    assert g.number_of_nodes() == 5 and g.number_of_edges() == 3
 
 
 def test_blast_radius_walks_depends_on_upstream():
-    corpus, a_id, b_id, c_id, d_id = _corpus()
+    corpus, a_id, b_id, c_id, d_id, f_id = _corpus()
     g = build_graph(corpus)
     # c fires -> b depends on c, a depends on b: both affected; d does not depend on c
     assert blast_radius(g, c_id) == {a_id, b_id}
@@ -841,25 +943,27 @@ def test_blast_radius_walks_depends_on_upstream():
 
 
 def test_extract_cruxes_ranks_contested_by_centrality():
-    corpus, a_id, b_id, c_id, d_id = _corpus()
-    cent = centrality(build_graph(corpus))
-    assert extract_cruxes(corpus, cent) == [b_id]  # only contested node
+    corpus, a_id, b_id, c_id, d_id, f_id = _corpus()
+    cent = compute_centrality(build_graph(corpus))
+    # both b and f are contested; b sits on the dependency chain (high betweenness),
+    # f is isolated (zero) - the ranking, not just membership, is under test
+    assert extract_cruxes(corpus, cent) == [b_id, f_id]
 
 
-def test_unsublated_undercutters_found_and_cleared():
-    corpus, a_id, b_id, c_id, d_id = _corpus()
-    assert unsublated_undercutters(corpus) == [(d_id, a_id)]
+def test_find_unsublated_undercutters_found_and_cleared():
+    corpus, a_id, b_id, c_id, d_id, f_id = _corpus()
+    assert find_unsublated_undercutters(corpus) == [(d_id, a_id)]
     # a rebuttal against the undercutter clears it
-    corpus.edges.append(_edge(a_id, d_id, "rebuts"))
-    assert unsublated_undercutters(corpus) == []
+    corpus.edges.append(make_edge(a_id, d_id, "rebuts"))
+    assert find_unsublated_undercutters(corpus) == []
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 3: Run test to verify it fails**
 
 Run: `uv run pytest tests/test_graph.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'antfarm.graph'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 4: Write minimal implementation**
 
 `src/antfarm/graph.py`:
 
@@ -879,7 +983,7 @@ def build_graph(corpus: Corpus) -> nx.MultiDiGraph:
     return g
 
 
-def centrality(g: nx.MultiDiGraph) -> dict[str, float]:
+def compute_centrality(g: nx.MultiDiGraph) -> dict[str, float]:
     return nx.betweenness_centrality(nx.Graph(g))
 
 
@@ -890,9 +994,14 @@ def extract_cruxes(corpus: Corpus, cent: dict[str, float], top_k: int = 5) -> li
     return contested[:top_k]
 
 
-def unsublated_undercutters(corpus: Corpus) -> list[tuple[str, str]]:
-    answered = {edge.dst for edge in corpus.edges
-                if edge.rel in ("rebuts", "supersedes", "qualifies")}
+def answered_challengers(corpus: Corpus) -> set[str]:
+    """Challengers that have themselves been rebutted, superseded, or qualified."""
+    return {edge.dst for edge in corpus.edges
+            if edge.rel in ("rebuts", "supersedes", "qualifies")}
+
+
+def find_unsublated_undercutters(corpus: Corpus) -> list[tuple[str, str]]:
+    answered = answered_challengers(corpus)
     out = []
     for edge in corpus.edges:
         if edge.rel != "undercuts":
@@ -912,15 +1021,16 @@ def blast_radius(g: nx.MultiDiGraph, node_id: str) -> set[str]:
     return nx.ancestors(dep, node_id)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 5: Run test to verify it passes**
 
 Run: `uv run pytest tests/test_graph.py -v`
 Expected: 4 passed
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/antfarm/graph.py tests/test_graph.py
+uv run ruff check src tests
+git add src/antfarm/graph.py tests/helpers.py tests/test_graph.py
 git commit -m "feat: graph queries for centrality, cruxes, undercutters, blast radius"
 ```
 
@@ -933,7 +1043,7 @@ git commit -m "feat: graph queries for centrality, cruxes, undercutters, blast r
 - Test: `tests/test_graph.py` (append)
 
 **Interfaces:**
-- Consumes: `Corpus` (Task 4), `centrality` output (Task 6)
+- Consumes: `Corpus` (Task 4), `compute_centrality` output (Task 6), `helpers.make_corpus_node`
 - Produces: `compute_view(corpus: Corpus, cent: dict[str, float], centrality_floor: float = 0.0) -> set[str]` — admission = `status == "live"` AND `verified` AND `diagnosticity != "none"` AND centrality ≥ floor. Nothing else can admit an atom.
 
 - [ ] **Step 1: Write the failing test**
@@ -941,42 +1051,37 @@ git commit -m "feat: graph queries for centrality, cruxes, undercutters, blast r
 Append to `tests/test_graph.py`:
 
 ```python
+import pytest
+
 from antfarm.graph import compute_view
 
+GATE_TEXT = "Verified live claims about solar economics enter the view."
 
-def test_view_gate_admission_rules():
-    corpus = Corpus()
-    rows = [
-        ("Verified live claims about solar economics enter the view.", dict(verified=True), True),
-        ("Unverified claims about solar economics stay in the well.", dict(verified=False), False),
-        ("Contested claims about solar economics stay in the well.",
-         dict(verified=True, status="contested"), False),
-        ("Superseded claims about solar economics stay in the well.",
-         dict(verified=True, status="superseded"), False),
-    ]
-    expected = set()
-    for text, kw, admitted in rows:
-        nid, cn = _cn(text, **kw)
-        corpus.nodes[nid] = cn
-        if admitted:
-            expected.add(nid)
-    assert compute_view(corpus, cent={}) == expected
+
+@pytest.mark.parametrize("kwargs,admitted", [
+    (dict(verified=True), True),
+    (dict(verified=False), False),
+    (dict(verified=True, status="contested"), False),
+    (dict(verified=True, status="superseded"), False),
+])
+def test_view_gate_admission(kwargs, admitted):
+    n = make_corpus_node(GATE_TEXT, **kwargs)
+    corpus = Corpus(nodes={n.id: n})
+    assert (n.id in compute_view(corpus, cent={})) is admitted
 
 
 def test_view_gate_excludes_non_diagnostic_evidence():
-    corpus = Corpus()
-    nid, cn = _cn("Both hypotheses predict rising battery production.",
-                  node_type="evidence", verified=True, diagnosticity="none")
-    corpus.nodes[nid] = cn
+    n = make_corpus_node("Both hypotheses predict rising battery production.",
+                         type="evidence", verified=True, diagnosticity="none")
+    corpus = Corpus(nodes={n.id: n})
     assert compute_view(corpus, cent={}) == set()
 
 
 def test_view_gate_centrality_floor():
-    corpus = Corpus()
-    nid, cn = _cn("Verified live claims about solar economics enter the view.", verified=True)
-    corpus.nodes[nid] = cn
-    assert compute_view(corpus, cent={nid: 0.1}, centrality_floor=0.2) == set()
-    assert compute_view(corpus, cent={nid: 0.3}, centrality_floor=0.2) == {nid}
+    n = make_corpus_node(GATE_TEXT, verified=True)
+    corpus = Corpus(nodes={n.id: n})
+    assert compute_view(corpus, cent={n.id: 0.1}, centrality_floor=0.2) == set()
+    assert compute_view(corpus, cent={n.id: 0.3}, centrality_floor=0.2) == {n.id}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1003,11 +1108,12 @@ def compute_view(corpus: Corpus, cent: dict[str, float],
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/test_graph.py -v`
-Expected: 7 passed
+Expected: 10 passed (4 from Task 6, 4 parametrized admission cases, 2 more gate tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
+uv run ruff check src tests
 git add src/antfarm/graph.py tests/test_graph.py
 git commit -m "feat: computed view gate - live, verified, diagnostic, above centrality floor"
 ```
@@ -1016,39 +1122,45 @@ git commit -m "feat: computed view gate - live, verified, diagnostic, above cent
 
 ### Task 8: Chroma stores — view/well collections with routing
 
+Design note: the store computes embeddings itself via a plain `EmbedFn` callable
+(same type as `cluster.py`) and passes explicit `embeddings=` / `query_embeddings=`
+to chroma. It never registers a chroma `EmbeddingFunction` — that ABC's config
+serialization contract (`name()`/`get_config()`) is version-churny and buys nothing
+here. One embedding seam for the whole package: `EmbedFn`.
+
 **Files:**
 - Create: `src/antfarm/stores.py`
 - Test: `tests/test_stores.py`
 
 **Interfaces:**
-- Consumes: `Corpus`, `CorpusNode` (Task 4); `compute_view` output (Task 7)
-- Produces: `CorpusStore(client: chromadb.ClientAPI, embed_fn=None)` with classmethod `CorpusStore.persistent(persist_dir: Path, embed_fn=None) -> CorpusStore`, `.rebuild(corpus: Corpus, view_ids: set[str]) -> None` (drops and recreates both collections — derived index, source of truth is the event log), `.query(collection: str, text: str, n: int = 8, where: dict | None = None) -> list[dict]` returning `[{"id", "text", "metadata", "distance"}]`
+- Consumes: `Corpus`, `CorpusNode` (Task 4); `EmbedFn` (Task 5); `compute_view` output (Task 7)
+- Produces: `CorpusStore(client: chromadb.ClientAPI, embed_fn: EmbedFn)` with classmethod `CorpusStore.persistent(persist_dir: Path, embed_fn: EmbedFn) -> CorpusStore`, `.rebuild(corpus: Corpus, view_ids: set[str]) -> None` (drops and recreates both collections — derived index, source of truth is the event log), `.query(collection: str, text: str, n: int = 8, where: dict | None = None) -> list[dict]` returning `[{"id", "text", "metadata", "distance"}]`
 
 - [ ] **Step 1: Write the failing test**
 
 `tests/test_stores.py`:
 
 ```python
-import chromadb
+import hashlib
 
-from antfarm.reduce import Corpus, CorpusNode
-from antfarm.schema import Vantage, atom_id
+import chromadb
+from helpers import make_corpus_node
+
+from antfarm.reduce import Corpus
 from antfarm.stores import CorpusStore
 
-V = Vantage(run="r1", farm="A", family="claude", persona="analyst", round=2, sensor="model")
 
-
-class HashEmbed(chromadb.EmbeddingFunction):
-    """Deterministic 8-dim embedding from character trigram hashes - no model download."""
-
-    def __call__(self, input):
-        out = []
-        for text in input:
-            vec = [0.0] * 8
-            for i in range(len(text) - 2):
-                vec[hash(text[i:i + 3]) % 8] += 1.0
-            out.append(vec)
-        return out
+def hash_embed(texts: list[str]) -> list[list[float]]:
+    """Deterministic 8-dim embedding from character trigrams - no model download,
+    seed-independent (hashlib, not hash())."""
+    out = []
+    for text in texts:
+        vec = [0.0] * 8
+        for i in range(len(text) - 2):
+            tri = text[i:i + 3].encode()
+            vec[int.from_bytes(hashlib.sha256(tri).digest()[:2], "big") % 8] += 1.0
+        out.append(vec)
+    return out
 
 
 def _corpus():
@@ -1057,15 +1169,13 @@ def _corpus():
         ("Grid storage capacity limits solar deployment growth.", True),
         ("Battery costs fall 15% per doubling of production.", False),
     ]:
-        nid = atom_id("claim", text)
-        corpus.nodes[nid] = CorpusNode(id=nid, type="claim", text=text, vantage=V,
-                                       vantages=[V], verified=verified,
-                                       question_id="q-1", ts="t")
+        n = make_corpus_node(text, verified=verified)
+        corpus.nodes[n.id] = n
     return corpus
 
 
 def _store():
-    return CorpusStore(chromadb.EphemeralClient(), embed_fn=HashEmbed())
+    return CorpusStore(chromadb.EphemeralClient(), embed_fn=hash_embed)
 
 
 def test_routing_well_gets_everything_view_gets_subset():
@@ -1074,8 +1184,7 @@ def test_routing_well_gets_everything_view_gets_subset():
     store = _store()
     store.rebuild(corpus, view_ids)
     assert len(store.query("well", "solar", n=10)) == 2
-    view_hits = store.query("view", "solar", n=10)
-    assert [h["id"] for h in view_hits] == list(view_ids)
+    assert {h["id"] for h in store.query("view", "solar", n=10)} == view_ids
 
 
 def test_metadata_filters():
@@ -1108,6 +1217,7 @@ from pathlib import Path
 
 import chromadb
 
+from antfarm.cluster import EmbedFn
 from antfarm.reduce import Corpus, CorpusNode
 
 
@@ -1127,37 +1237,38 @@ def _metadata(node: CorpusNode) -> dict:
 
 
 class CorpusStore:
-    def __init__(self, client: chromadb.ClientAPI, embed_fn=None):
+    def __init__(self, client: chromadb.ClientAPI, embed_fn: EmbedFn):
         self.client = client
         self.embed_fn = embed_fn
 
     @classmethod
-    def persistent(cls, persist_dir: Path, embed_fn=None) -> "CorpusStore":
+    def persistent(cls, persist_dir: Path, embed_fn: EmbedFn) -> "CorpusStore":
         return cls(chromadb.PersistentClient(path=str(persist_dir)), embed_fn=embed_fn)
 
-    def _fresh_collection(self, name: str):
-        try:
+    def _fresh_collection(self, name: str) -> chromadb.Collection:
+        # list_collections returns Collection objects or names depending on version
+        existing = {getattr(c, "name", c) for c in self.client.list_collections()}
+        if name in existing:
             self.client.delete_collection(name)
-        except Exception:
-            pass
-        kwargs = {"embedding_function": self.embed_fn} if self.embed_fn else {}
-        return self.client.create_collection(name, **kwargs)
+        return self.client.create_collection(name)
 
     def rebuild(self, corpus: Corpus, view_ids: set[str]) -> None:
         for name, ids in (("well", list(corpus.nodes)), ("view", list(view_ids))):
             collection = self._fresh_collection(name)
             if ids:
+                texts = [corpus.nodes[nid].text for nid in ids]
                 collection.add(
                     ids=ids,
-                    documents=[corpus.nodes[nid].text for nid in ids],
+                    documents=texts,
+                    embeddings=self.embed_fn(texts),
                     metadatas=[_metadata(corpus.nodes[nid]) for nid in ids],
                 )
 
     def query(self, collection: str, text: str, n: int = 8,
               where: dict | None = None) -> list[dict]:
-        kwargs = {"embedding_function": self.embed_fn} if self.embed_fn else {}
-        col = self.client.get_collection(collection, **kwargs)
-        res = col.query(query_texts=[text], n_results=n, where=where)
+        col = self.client.get_collection(collection)
+        res = col.query(query_embeddings=[self.embed_fn([text])[0]],
+                        n_results=n, where=where)
         return [
             {"id": i, "text": doc, "metadata": meta, "distance": dist}
             for i, doc, meta, dist in zip(
@@ -1168,13 +1279,14 @@ class CorpusStore:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/test_stores.py -v`
-Expected: 3 passed. (If chromadb rejects the `HashEmbed` stub, consult its installed `EmbeddingFunction` ABC and add the required methods to the test stub — the store code itself stays unchanged.)
+Expected: 3 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
+uv run ruff check src tests
 git add src/antfarm/stores.py tests/test_stores.py
-git commit -m "feat: chroma view/well stores with vantage metadata and routing"
+git commit -m "feat: chroma view/well stores with explicit embeddings and vantage metadata"
 ```
 
 ---
@@ -1186,8 +1298,8 @@ git commit -m "feat: chroma view/well stores with vantage metadata and routing"
 - Test: `tests/test_transcript.py`
 
 **Interfaces:**
-- Consumes: `Vantage` from `antfarm.schema`
-- Produces: `Turn(turn: int, role: Literal["user","assistant","system"], phase: Literal["sublate","expand","compress","critique"] | None, iteration: int, content: str)`; `Outcome(decision: Literal["CONCLUDE","CONCEDE","ELEVATE"], ledger_clean: bool, refuted: bool = False, died_because: str | None = None)`; `coherence_label(outcome: Outcome) -> str`; `write_transcript(farm_dir: Path, turns: list[Turn], vantage: Vantage, outcome: Outcome) -> tuple[Path, Path]` writing `trace.jsonl` + `stats.json`
+- Consumes: `Vantage` from `antfarm.schema`; `helpers.V`
+- Produces: `Turn(turn: int, role: Literal["user","assistant","system"], phase: Literal["sublate","expand","compress","critique"] | None = None, iteration: int, content: str)`; `LedgerEntry(trigger: str, change: str, novel_content: bool)`; `VerificationStats(atoms_emitted: int = 0, atoms_verified: int = 0)`; `Outcome(decision: Literal["CONCLUDE","CONCEDE","ELEVATE"], ledger_clean: bool, ledger: list[LedgerEntry] = [], verification: VerificationStats = VerificationStats(), refuted: bool = False, died_because: str | None = None)`; `coherence_label(outcome: Outcome) -> str`; `write_transcript(farm_dir: Path, turns: list[Turn], vantage: Vantage, outcome: Outcome) -> tuple[Path, Path]` writing `trace.jsonl` + `stats.json`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1196,10 +1308,11 @@ git commit -m "feat: chroma view/well stores with vantage metadata and routing"
 ```python
 import json
 
-from antfarm.schema import Vantage
-from antfarm.transcript import Outcome, Turn, coherence_label, write_transcript
+import pytest
+from helpers import V
 
-V = Vantage(run="r1", farm="A", family="claude", persona="analyst", round=3, sensor="model")
+from antfarm.transcript import (LedgerEntry, Outcome, Turn, VerificationStats,
+                                coherence_label, write_transcript)
 
 TURNS = [
     Turn(turn=0, role="user", phase=None, iteration=1, content="Question: is rooftop solar a good investment?"),
@@ -1208,37 +1321,50 @@ TURNS = [
     Turn(turn=3, role="assistant", phase="sublate", iteration=2, content="The critique about net-metering rollbacks survives; qualifying the thesis to net-metering states."),
 ]
 
+# spec 9.2: export carries decision, degeneration-ledger state, verification stats
+OUTCOME = Outcome(
+    decision="CONCLUDE",
+    ledger_clean=True,
+    ledger=[LedgerEntry(trigger="net-metering rollback critique",
+                        change="qualified thesis to net-metering states",
+                        novel_content=True)],
+    verification=VerificationStats(atoms_emitted=12, atoms_verified=9),
+)
+
 
 def test_trace_jsonl_matches_keel_schema_exactly(tmp_path):
-    outcome = Outcome(decision="CONCLUDE", ledger_clean=True)
-    trace_path, stats_path = write_transcript(tmp_path / "farmA", TURNS, V, outcome)
-    lines = [json.loads(l) for l in trace_path.read_text().splitlines()]
+    trace_path, _ = write_transcript(tmp_path / "farmA", TURNS, V, OUTCOME)
+    lines = [json.loads(line) for line in trace_path.read_text().splitlines()]
     assert len(lines) == 4
     # exact keel traces/ schema: these five keys, no others
-    assert all(set(l) == {"turn", "role", "phase", "iteration", "content"} for l in lines)
+    assert all(set(line) == {"turn", "role", "phase", "iteration", "content"} for line in lines)
     assert lines[3] == {"turn": 3, "role": "assistant", "phase": "sublate",
                         "iteration": 2, "content": TURNS[3].content}
 
 
 def test_stats_manifest_carries_vantage_outcome_label(tmp_path):
-    outcome = Outcome(decision="CONCLUDE", ledger_clean=True, refuted=True)
+    outcome = OUTCOME.model_copy(update={"refuted": True})
     _, stats_path = write_transcript(tmp_path / "farmA", TURNS, V, outcome)
     stats = json.loads(stats_path.read_text())
     assert stats["vantage"]["farm"] == "A"
     assert stats["outcome"]["decision"] == "CONCLUDE"
+    assert stats["outcome"]["ledger"][0]["novel_content"] is True
+    assert stats["outcome"]["verification"] == {"atoms_emitted": 12, "atoms_verified": 9}
     assert stats["coherence_label"] == "coherent_refuted"
     assert stats["turns"] == 4 and stats["iterations"] == 2
     assert stats["approx_tokens"] > 0
 
 
-def test_label_discipline():
+@pytest.mark.parametrize("outcome,expected", [
+    (Outcome(decision="CONCEDE", ledger_clean=True,
+             died_because="rival explained the evidence"), "conceded"),
+    (Outcome(decision="CONCLUDE", ledger_clean=True), "coherent"),
+    (Outcome(decision="CONCLUDE", ledger_clean=True, refuted=True), "coherent_refuted"),
+    (Outcome(decision="ELEVATE", ledger_clean=False), "elevated"),
+])
+def test_label_discipline(outcome, expected):
     # spec 9.2: CONCEDE is a dialectical outcome, never exported as degraded
-    assert coherence_label(Outcome(decision="CONCEDE", ledger_clean=True,
-                                   died_because="rival explained the evidence")) == "conceded"
-    assert coherence_label(Outcome(decision="CONCLUDE", ledger_clean=True)) == "coherent"
-    assert coherence_label(Outcome(decision="CONCLUDE", ledger_clean=True,
-                                   refuted=True)) == "coherent_refuted"
-    assert coherence_label(Outcome(decision="ELEVATE", ledger_clean=False)) == "elevated"
+    assert coherence_label(outcome) == expected
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1253,9 +1379,9 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'antfarm.transcript'`
 ```python
 import json
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from antfarm.schema import Vantage
 
@@ -1263,16 +1389,32 @@ from antfarm.schema import Vantage
 class Turn(BaseModel):
     turn: int
     role: Literal["user", "assistant", "system"]
-    phase: Optional[Literal["sublate", "expand", "compress", "critique"]]
+    phase: Literal["sublate", "expand", "compress", "critique"] | None = None
     iteration: int
     content: str
+
+
+class LedgerEntry(BaseModel):
+    """One Lakatos revision-ledger row (spec §7): what triggered a patch and
+    whether the patch carried novel content."""
+
+    trigger: str
+    change: str
+    novel_content: bool
+
+
+class VerificationStats(BaseModel):
+    atoms_emitted: int = 0
+    atoms_verified: int = 0
 
 
 class Outcome(BaseModel):
     decision: Literal["CONCLUDE", "CONCEDE", "ELEVATE"]
     ledger_clean: bool
+    ledger: list[LedgerEntry] = Field(default_factory=list)
+    verification: VerificationStats = Field(default_factory=VerificationStats)
     refuted: bool = False
-    died_because: Optional[str] = None
+    died_because: str | None = None
 
 
 def coherence_label(outcome: Outcome) -> str:
@@ -1306,11 +1448,12 @@ def write_transcript(farm_dir: Path, turns: list[Turn], vantage: Vantage,
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/test_transcript.py -v`
-Expected: 3 passed
+Expected: 6 passed (2 + 4 parametrized label cases)
 
 - [ ] **Step 5: Commit**
 
 ```bash
+uv run ruff check src tests
 git add src/antfarm/transcript.py tests/test_transcript.py
 git commit -m "feat: retained farm transcripts in keel traces/ schema with label discipline"
 ```
@@ -1355,6 +1498,8 @@ def test_shuffle_is_deterministic_and_renumbered():
     assert [t.content for t in a] == [t.content for t in b]  # deterministic
     assert [t.turn for t in a] == list(range(6))             # renumbered
     assert sorted(t.content for t in a) == sorted(t.content for t in turns)  # same multiset
+    # seed 7 is verified non-identity on these 6 turns; if the fixture changes and
+    # this fires, pick a different seed - the assertion is the guard
     assert [t.content for t in a] != [t.content for t in turns]  # actually permuted
     assert [t.content for t in turns] == [f"host iteration {it} step {k}"
                                           for it in (1, 2, 3) for k in (0, 1)]  # input untouched
@@ -1410,6 +1555,7 @@ Expected: 2 passed. (If seed 7 happens to produce the identity permutation on 6 
 - [ ] **Step 5: Commit**
 
 ```bash
+uv run ruff check src tests
 git add src/antfarm/counterfactual.py tests/test_counterfactual.py
 git commit -m "feat: shuffle and graft counterfactuals - ground truth by construction"
 ```
@@ -1423,49 +1569,47 @@ git commit -m "feat: shuffle and graft counterfactuals - ground truth by constru
 - Test: `tests/test_render.py`
 
 **Interfaces:**
-- Consumes: `Corpus` (Task 4), view id set (Task 7)
-- Produces: `render_obsidian(corpus: Corpus, view_ids: set[str], out_dir: Path) -> list[Path]` — one markdown page per view node: frontmatter (`type`, `status`, `verified`, `sightings`), atom text, `## Edges` with `[[wikilinks]]`, `## Standing challenges` listing incoming `rebuts`/`undercuts` edges from any well node (spec §4.3: every view node is one edge away from its standing challenges)
+- Consumes: `Corpus` (Task 4), view id set (Task 7), `answered_challengers` (Task 6)
+- Produces: `render_obsidian(corpus: Corpus, view_ids: set[str], out_dir: Path) -> list[Path]` — one markdown page per view node: frontmatter (`type`, `status`, `verified`, `sightings`), atom text, `## Edges` with `[[wikilinks]]`, `## Standing challenges` listing incoming `rebuts`/`undercuts` edges from any well node (spec §4.3: every view node is one edge away from its standing challenges). *Standing* means the challenger is live and unanswered — a challenge whose challenger was itself rebutted/superseded/qualified (per `answered_challengers`) or is dead does not render.
 
 - [ ] **Step 1: Write the failing test**
 
 `tests/test_render.py`:
 
 ```python
-from antfarm.reduce import Corpus, CorpusNode
+from helpers import make_corpus_node, make_edge
+
+from antfarm.reduce import Corpus
 from antfarm.render import render_obsidian
-from antfarm.schema import Edge, Vantage, atom_id
-
-V = Vantage(run="r1", farm="A", family="claude", persona="analyst", round=1, sensor="model")
-
-
-def _cn(text, node_type="claim", **kw):
-    nid = atom_id(node_type, text)
-    return nid, CorpusNode(id=nid, type=node_type, text=text, vantage=V, vantages=[V],
-                           question_id="q-1", ts="t", **kw)
 
 
 def test_render_pages_edges_and_standing_challenges(tmp_path):
-    a_id, a = _cn("Grid storage capacity limits solar deployment growth.", verified=True)
-    e_id, e = _cn("Battery production doubled between 2023 and 2025.",
-                  node_type="evidence", verified=True)
-    u_id, u = _cn("Deployment statistics conflate contracted and installed capacity.")
-    corpus = Corpus(nodes={a_id: a, e_id: e, u_id: u}, edges=[
-        Edge(src=e_id, dst=a_id, rel="supports", warrant="production growth bounds deployment",
-             vantage=V, ts="t"),
-        Edge(src=u_id, dst=a_id, rel="undercuts", vantage=V, ts="t"),
+    a = make_corpus_node("Grid storage capacity limits solar deployment growth.",
+                         verified=True)
+    e = make_corpus_node("Battery production doubled between 2023 and 2025.",
+                         type="evidence", verified=True)
+    u = make_corpus_node("Deployment statistics conflate contracted and installed capacity.")
+    dead = make_corpus_node("Battery production numbers are vendor-inflated projections.")
+    corpus = Corpus(nodes={n.id: n for n in (a, e, u, dead)}, edges=[
+        make_edge(e.id, a.id, "supports", warrant="production growth bounds deployment"),
+        make_edge(u.id, a.id, "undercuts"),
+        make_edge(dead.id, a.id, "undercuts"),
+        make_edge(e.id, dead.id, "rebuts"),  # dead's challenge has been answered
     ])
-    view_ids = {a_id, e_id}  # undercutter is well-only
+    view_ids = {a.id, e.id}  # challengers are well-only
 
     paths = render_obsidian(corpus, view_ids, tmp_path)
     assert sorted(p.name for p in paths) == sorted(f"{nid}.md" for nid in view_ids)
 
-    page = (tmp_path / f"{a_id}.md").read_text()
+    page = (tmp_path / f"{a.id}.md").read_text()
     assert "status: live" in page and "verified: true" in page
     assert a.text in page
-    assert f"[[{e_id}]]" in page and "production growth bounds deployment" in page
+    assert f"[[{e.id}]]" in page and "production growth bounds deployment" in page
     # standing challenge from a non-view node still appears (one edge away, spec 4.3)
-    assert f"undercut by [[{u_id}]]" in page
+    assert f"undercut by [[{u.id}]]" in page
     assert u.text in page
+    # an answered challenge is not standing and must not render
+    assert dead.id not in page
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1480,12 +1624,13 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'antfarm.render'`
 ```python
 from pathlib import Path
 
+from antfarm.graph import answered_challengers
 from antfarm.reduce import Corpus
 
 _CHALLENGE_VERB = {"rebuts": "rebutted by", "undercuts": "undercut by"}
 
 
-def _page(corpus: Corpus, nid: str) -> str:
+def _page(corpus: Corpus, nid: str, answered: set[str]) -> str:
     node = corpus.nodes[nid]
     lines = [
         "---",
@@ -1511,23 +1656,28 @@ def _page(corpus: Corpus, nid: str) -> str:
                 entry += f" — {e.warrant}"
             lines.append(entry)
         lines.append("")
-    challenges = [e for e in incoming if e.rel in _CHALLENGE_VERB]
+    challenges = [
+        e for e in incoming
+        if e.rel in _CHALLENGE_VERB
+        and e.src not in answered  # answered challenges are not standing
+        and (challenger := corpus.nodes.get(e.src)) is not None
+        and challenger.status == "live"
+    ]
     if challenges:
         lines.append("## Standing challenges")
         for e in challenges:
-            challenger = corpus.nodes.get(e.src)
-            text = f": {challenger.text}" if challenger else ""
-            lines.append(f"- {_CHALLENGE_VERB[e.rel]} [[{e.src}]]{text}")
+            lines.append(f"- {_CHALLENGE_VERB[e.rel]} [[{e.src}]]: {corpus.nodes[e.src].text}")
         lines.append("")
     return "\n".join(lines)
 
 
 def render_obsidian(corpus: Corpus, view_ids: set[str], out_dir: Path) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
+    answered = answered_challengers(corpus)
     paths = []
     for nid in sorted(view_ids):
         path = out_dir / f"{nid}.md"
-        path.write_text(_page(corpus, nid), encoding="utf-8")
+        path.write_text(_page(corpus, nid, answered), encoding="utf-8")
         paths.append(path)
     return paths
 ```
@@ -1537,10 +1687,10 @@ def render_obsidian(corpus: Corpus, view_ids: set[str], out_dir: Path) -> list[P
 Run: `uv run pytest tests/test_render.py -v`
 Expected: 1 passed
 
-- [ ] **Step 5: Run the full suite**
+- [ ] **Step 5: Run the full suite, lint, and type check**
 
-Run: `uv run pytest -v`
-Expected: all tests pass (eval tests deselected by default)
+Run: `uv run pytest -v && uv run ruff check src tests && uv run mypy src`
+Expected: all tests pass (eval tests deselected by default), ruff clean, mypy clean
 
 - [ ] **Step 6: Commit**
 
