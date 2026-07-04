@@ -25,9 +25,20 @@ def extract_cruxes(corpus: Corpus, cent: dict[str, float], top_k: int = 5) -> li
 
 
 def answered_challengers(corpus: Corpus) -> set[str]:
-    """Challengers that have themselves been rebutted, superseded, or qualified."""
-    return {edge.dst for edge in corpus.edges
-            if edge.rel in ("rebuts", "supersedes", "qualifies")}
+    """Challengers that have themselves been rebutted, superseded, or qualified.
+
+    An answer only counts if the answering node (the edge's src) is present in
+    the corpus and still live; a rebuttal from a superseded or conceded node
+    does not clear the challenge.
+    """
+    out = set()
+    for edge in corpus.edges:
+        if edge.rel not in ("rebuts", "supersedes", "qualifies"):
+            continue
+        answerer = corpus.nodes.get(edge.src)
+        if answerer is not None and answerer.status == "live":
+            out.add(edge.dst)
+    return out
 
 
 def find_unsublated_undercutters(corpus: Corpus) -> list[tuple[str, str]]:

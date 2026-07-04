@@ -1,6 +1,7 @@
 import pytest
 
 from antfarm.graph import (
+    answered_challengers,
     blast_radius,
     build_graph,
     compute_centrality,
@@ -56,6 +57,34 @@ def test_find_unsublated_undercutters_found_and_cleared():
     # a rebuttal against the undercutter clears it
     corpus.edges.append(make_edge(a_id, d_id, "rebuts"))
     assert find_unsublated_undercutters(corpus) == []
+
+
+def test_answered_challengers_requires_live_answerer():
+    challenger = make_corpus_node("Sensor drift explains the observed anomaly.")
+    live_rebuttal = make_corpus_node("Calibration logs rule out sensor drift.")
+    dead_rebuttal = make_corpus_node("An early analysis dismissed sensor drift.",
+                                     status="superseded")
+
+    # rebutted by a live node -> answered
+    corpus = Corpus(
+        nodes={n.id: n for n in (challenger, live_rebuttal)},
+        edges=[make_edge(live_rebuttal.id, challenger.id, "rebuts")],
+    )
+    assert answered_challengers(corpus) == {challenger.id}
+
+    # only rebuttal comes from a superseded node -> not answered
+    corpus = Corpus(
+        nodes={n.id: n for n in (challenger, dead_rebuttal)},
+        edges=[make_edge(dead_rebuttal.id, challenger.id, "rebuts")],
+    )
+    assert answered_challengers(corpus) == set()
+
+    # rebuttal edge whose src is absent from corpus.nodes -> not answered
+    corpus = Corpus(
+        nodes={challenger.id: challenger},
+        edges=[make_edge("missing-node-id", challenger.id, "rebuts")],
+    )
+    assert answered_challengers(corpus) == set()
 
 
 GATE_TEXT = "Verified live claims about solar economics enter the view."
