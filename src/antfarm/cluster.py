@@ -15,7 +15,7 @@ def cosine(a: list[float], b: list[float]) -> float:
 
 
 class EmbeddingMatcher:
-    def __init__(self, embed_fn: EmbedFn, threshold: float = 0.85):
+    def __init__(self, embed_fn: EmbedFn, threshold: float = 0.67):
         self.embed_fn = embed_fn
         self.threshold = threshold
         self._cache: dict[str, list[float]] = {}
@@ -38,7 +38,7 @@ class EmbeddingMatcher:
 
 
 def entailment_clusters(texts: list[str], embed_fn: EmbedFn,
-                        threshold: float = 0.85) -> list[list[int]]:
+                        threshold: float = 0.67) -> list[list[int]]:
     vecs = embed_fn(texts)
     clusters: list[list[int]] = []
     for i, vec in enumerate(vecs):

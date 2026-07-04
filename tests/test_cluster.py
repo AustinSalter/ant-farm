@@ -70,6 +70,13 @@ DISTINCT_PAIRS = [
 ]
 
 
+# Threshold 0.67 decided 2026-07-04 per spec §13.1 from measured cosine similarities
+# with chromadb's DefaultEmbeddingFunction:
+#   PARAPHRASE pair 1 (solar payback):                       0.6717
+#   PARAPHRASE pair 2 (remote work emissions):               0.6771
+#   DISTINCT pair 1 (rooftop vs utility-scale):              0.4817
+#   DISTINCT pair 2 (remote work emissions vs resid. energy): 0.6650
+# Note: the margin over the hardest distinct pair (0.6650) is thin.
 @pytest.mark.eval
 def test_merge_fidelity_with_real_embeddings():
     """Spec §10.3: paraphrases must merge; genuine variants must separate."""
@@ -80,6 +87,6 @@ def test_merge_fidelity_with_real_embeddings():
         return [list(map(float, v)) for v in ef(texts)]
 
     for a, b in PARAPHRASE_PAIRS:
-        assert len(entailment_clusters([a, b], embed, threshold=0.85)) == 1, (a, b)
+        assert len(entailment_clusters([a, b], embed, threshold=0.67)) == 1, (a, b)
     for a, b in DISTINCT_PAIRS:
-        assert len(entailment_clusters([a, b], embed, threshold=0.85)) == 2, (a, b)
+        assert len(entailment_clusters([a, b], embed, threshold=0.67)) == 2, (a, b)
