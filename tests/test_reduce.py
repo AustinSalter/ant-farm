@@ -162,3 +162,35 @@ def test_events_referencing_genuinely_unknown_id_still_raise_with_matcher():
             node_event(a),
             status_event("h-000000000099", "conceded", ts="t"),
         ], matcher=matcher)
+
+
+def test_supersede_src_resolved_after_later_merge_establishing_its_alias():
+    # The supersedes edge applies immediately (old already exists), but its src
+    # (b.id) hasn't merged into a yet. old.superseded_by must not dangle to the
+    # merged-away id once b's merge into a is processed later in the fold.
+    old = make_node("Coal plants retire on a 40-year schedule.")
+    a = make_node("Grid storage is the binding constraint on solar buildout.")
+    b = make_node("Storage capacity, not panel cost, now limits solar deployment.")
+    matcher = _StubMatcher({b.id: a.id})
+    sup = Edge(src=b.id, dst=old.id, rel="supersedes", vantage=V, ts="t")
+    corpus = reduce_events(
+        [node_event(old), node_event(a), edge_event(sup), node_event(b)],
+        matcher=matcher)
+    assert corpus.nodes[old.id].superseded_by == a.id
+
+
+def test_invalid_status_raises():
+    n = make_node("Fusion arrives before 2035 at grid scale.")
+    with pytest.raises(ValueError, match="unknown status"):
+        reduce_events([node_event(n), status_event(n.id, "concieved", ts="t")])
+
+
+def test_died_because_clears_on_revival_to_live():
+    h = make_node("Fusion arrives before 2035 at grid scale.")
+    corpus = reduce_events([
+        node_event(h),
+        status_event(h.id, "conceded", ts="t1", died_because="no surviving evidence path"),
+        status_event(h.id, "live", ts="t2"),
+    ])
+    assert corpus.nodes[h.id].status == "live"
+    assert corpus.nodes[h.id].died_because is None
