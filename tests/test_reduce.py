@@ -139,6 +139,21 @@ def test_edge_dst_targeting_merged_away_id_rewritten_to_canonical():
     assert corpus.edges[-1].dst == a.id
 
 
+def test_edge_arriving_before_merge_establishing_node_is_still_rewritten():
+    # The rebuts edge names b.id BEFORE the node event for b arrives (which is
+    # what establishes the alias b -> a). Stored edges must be re-resolved once
+    # the fold completes and the alias map is final.
+    a = make_node("Grid storage is the binding constraint on solar buildout.")
+    b = make_node("Storage capacity, not panel cost, now limits solar deployment.")
+    new = make_node("Coal plants retire on a 30-year schedule after IRA incentives.")
+    matcher = _StubMatcher({b.id: a.id})
+    rebut = Edge(src=new.id, dst=b.id, rel="rebuts", vantage=V, ts="t")
+    corpus = reduce_events(
+        [node_event(a), node_event(new), edge_event(rebut), node_event(b)],
+        matcher=matcher)
+    assert corpus.edges[-1].dst == a.id
+
+
 def test_events_referencing_genuinely_unknown_id_still_raise_with_matcher():
     a = make_node("Grid storage is the binding constraint on solar buildout.")
     matcher = _StubMatcher({})

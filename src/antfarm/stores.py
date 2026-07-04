@@ -12,8 +12,10 @@ def _metadata(node: CorpusNode) -> dict:
     # Single-value keys (farm/family/persona/round/sensor) reflect only the
     # originating vantage. Chroma metadata cannot hold list values, so every
     # vantage the atom has been sighted from (node.vantages) is additionally
-    # flattened into comma-joined, sorted, deduplicated CSV keys below, which
-    # `where` queries can match against any sighting rather than just the first.
+    # flattened into comma-joined, sorted, deduplicated CSV keys below. These
+    # carry all sighting vantages for post-filtering in Python; chroma has no
+    # substring operator, so an exact-match `where` on a CSV key only matches
+    # the full CSV string (e.g. {"families": "claude,gpt"}), not one member.
     families = ",".join(sorted({v.family for v in node.vantages}))
     farms = ",".join(sorted({v.farm for v in node.vantages}))
     personas = ",".join(sorted({v.persona for v in node.vantages}))

@@ -115,4 +115,11 @@ def reduce_events(events: list[dict], matcher: Matcher | None = None) -> Corpus:
         sorted_ids = sorted(unresolved_ids)
         raise ValueError(f"deferred event targets unknown node(s): {', '.join(sorted_ids)}")
 
+    # Edges were alias-resolved at append time, but a plain edge can arrive before
+    # the node event that establishes its alias. Now that the fold is complete and
+    # the alias map is final, re-resolve every stored edge (_resolve_edge only
+    # rebuilds an Edge when an id actually changes).
+    if alias:
+        corpus.edges = [_resolve_edge(e, alias) for e in corpus.edges]
+
     return corpus
