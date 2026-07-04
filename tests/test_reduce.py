@@ -71,3 +71,15 @@ def test_conceded_stays_on_map_with_died_because():
 def test_unknown_event_kind_raises():
     with pytest.raises(ValueError, match="unknown event kind"):
         reduce_events([{"kind": "telemetry", "payload": {}}])
+
+
+def test_deferred_event_with_missing_target_raises():
+    with pytest.raises(ValueError, match="unknown node"):
+        reduce_events([status_event("h-000000000099", "conceded", ts="t")])
+
+
+def test_deferred_supersedes_with_missing_target_raises():
+    src = make_node("Coal plants retire on a 30-year schedule after IRA incentives.")
+    sup = Edge(src=src.id, dst="h-000000000099", rel="supersedes", vantage=V, ts="t")
+    with pytest.raises(ValueError, match="unknown node"):
+        reduce_events([edge_event(sup)])

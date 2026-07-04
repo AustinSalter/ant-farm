@@ -67,9 +67,22 @@ def reduce_events(events: list[dict], matcher=None) -> Corpus:
                 deferred.append(ev)
         else:
             raise ValueError(f"unknown event kind: {kind!r}")
+
+    # Re-apply deferred events and track failures
+    unresolved_ids: set[str] = set()
     for ev in deferred:
         if ev["kind"] == "edge":
-            _apply_supersede(corpus, Edge.model_validate(ev["payload"]))
+            edge = Edge.model_validate(ev["payload"])
+            if not _apply_supersede(corpus, edge):
+                unresolved_ids.add(edge.dst)
         else:
-            _apply_status(corpus, ev["payload"])
+            payload = ev["payload"]
+            if not _apply_status(corpus, payload):
+                unresolved_ids.add(payload["id"])
+
+    # Raise if any deferred events still couldn't be applied
+    if unresolved_ids:
+        sorted_ids = sorted(unresolved_ids)
+        raise ValueError(f"deferred event targets unknown node(s): {', '.join(sorted_ids)}")
+
     return corpus
