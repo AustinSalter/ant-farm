@@ -83,3 +83,67 @@ def test_deferred_supersedes_with_missing_target_raises():
     sup = Edge(src=src.id, dst="h-000000000099", rel="supersedes", vantage=V, ts="t")
     with pytest.raises(ValueError, match="unknown node"):
         reduce_events([edge_event(sup)])
+
+
+class _StubMatcher:
+    """Fake matcher: merges the node whose id is a key of `merges` into the mapped
+    target id, provided that target is already present in the corpus."""
+
+    def __init__(self, merges: dict[str, str]):
+        self.merges = merges
+
+    def find_match(self, node, nodes):  # noqa: ANN001, ANN201 - test stub
+        target = self.merges.get(node.id)
+        return target if target in nodes else None
+
+
+def test_supersedes_edge_targeting_merged_away_id_resolves_to_canonical():
+    # b merges into a (paraphrase); a later supersedes edge naming b.id as its
+    # target must still land on the canonical node a, not dangle/raise.
+    a = make_node("Grid storage is the binding constraint on solar buildout.")
+    b = make_node("Storage capacity, not panel cost, now limits solar deployment.")
+    new = make_node("Coal plants retire on a 30-year schedule after IRA incentives.")
+    matcher = _StubMatcher({b.id: a.id})
+    sup = Edge(src=new.id, dst=b.id, rel="supersedes", vantage=V, ts="t")
+    corpus = reduce_events(
+        [node_event(a), node_event(b), node_event(new), edge_event(sup)],
+        matcher=matcher)
+    assert b.id not in corpus.nodes
+    assert corpus.nodes[a.id].status == "superseded"
+    assert corpus.nodes[a.id].superseded_by == new.id
+
+
+def test_status_event_targeting_merged_away_id_applies_to_canonical():
+    a = make_node("Grid storage is the binding constraint on solar buildout.")
+    b = make_node("Storage capacity, not panel cost, now limits solar deployment.")
+    matcher = _StubMatcher({b.id: a.id})
+    corpus = reduce_events([
+        node_event(a), node_event(b),
+        status_event(b.id, "conceded", ts="t", died_because="superseded by merge"),
+    ], matcher=matcher)
+    assert corpus.nodes[a.id].status == "conceded"
+    assert corpus.nodes[a.id].died_because == "superseded by merge"
+
+
+def test_edge_dst_targeting_merged_away_id_rewritten_to_canonical():
+    # A plain (non-supersedes) edge naming the merged-away id must have its dst
+    # rewritten so build_graph doesn't silently drop it.
+    a = make_node("Grid storage is the binding constraint on solar buildout.")
+    b = make_node("Storage capacity, not panel cost, now limits solar deployment.")
+    new = make_node("Coal plants retire on a 30-year schedule after IRA incentives.")
+    matcher = _StubMatcher({b.id: a.id})
+    rebut = Edge(src=new.id, dst=b.id, rel="rebuts", vantage=V, ts="t")
+    corpus = reduce_events(
+        [node_event(a), node_event(b), node_event(new), edge_event(rebut)],
+        matcher=matcher)
+    assert corpus.edges[-1].dst == a.id
+
+
+def test_events_referencing_genuinely_unknown_id_still_raise_with_matcher():
+    a = make_node("Grid storage is the binding constraint on solar buildout.")
+    matcher = _StubMatcher({})
+    with pytest.raises(ValueError, match="unknown node"):
+        reduce_events([
+            node_event(a),
+            status_event("h-000000000099", "conceded", ts="t"),
+        ], matcher=matcher)

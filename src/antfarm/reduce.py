@@ -55,8 +55,19 @@ def _apply_status(corpus: Corpus, payload: dict) -> bool:
     return True
 
 
+def _resolve_edge(edge: Edge, alias: dict[str, str]) -> Edge:
+    src, dst = alias.get(edge.src, edge.src), alias.get(edge.dst, edge.dst)
+    if src == edge.src and dst == edge.dst:
+        return edge
+    return edge.model_copy(update={"src": src, "dst": dst})
+
+
 def reduce_events(events: list[dict], matcher: Matcher | None = None) -> Corpus:
     corpus = Corpus()
+    # merged_id -> canonical_id, populated whenever an incoming node is folded into
+    # an existing one (matcher merge or matcher-free re-observation with a different
+    # id would be impossible, so this only ever fires for matcher merges)
+    alias: dict[str, str] = {}
     deferred: list[dict] = []  # supersedes/status whose target node hasn't been seen yet
     for ev in events:
         kind, payload = ev["kind"], ev["payload"]
@@ -66,31 +77,38 @@ def reduce_events(events: list[dict], matcher: Matcher | None = None) -> Corpus:
                 matcher.find_match(node, corpus.nodes) if matcher else None)
             if target:
                 _observe(corpus.nodes[target], node)
+                if node.id != target:
+                    alias[node.id] = target
             else:
                 corpus.nodes[node.id] = CorpusNode.model_validate(
                     {**node.model_dump(), "vantages": [node.vantage.model_dump()]})
         elif kind == "edge":
-            edge = Edge.model_validate(payload)
+            edge = _resolve_edge(Edge.model_validate(payload), alias)
             corpus.edges.append(edge)
             if edge.rel == "supersedes" and not _apply_supersede(corpus, edge):
-                deferred.append(ev)
+                deferred.append({"kind": "edge", "payload": edge.model_dump()})
         elif kind == "status":
-            if not _apply_status(corpus, payload):
-                deferred.append(ev)
+            resolved = {**payload, "id": alias.get(payload["id"], payload["id"])}
+            if not _apply_status(corpus, resolved):
+                deferred.append({"kind": "status", "payload": resolved})
         else:
             raise ValueError(f"unknown event kind: {kind!r}")
 
-    # Re-apply deferred events and track failures
+    # Re-apply deferred events - resolving through the alias map again, since a
+    # merge establishing an alias may itself have arrived after the deferred event -
+    # and track failures.
     unresolved_ids: set[str] = set()
     for ev in deferred:
         if ev["kind"] == "edge":
-            edge = Edge.model_validate(ev["payload"])
+            edge = _resolve_edge(Edge.model_validate(ev["payload"]), alias)
             if not _apply_supersede(corpus, edge):
                 unresolved_ids.add(edge.dst)
         else:
             payload = ev["payload"]
+            resolved_id = alias.get(payload["id"], payload["id"])
+            payload = {**payload, "id": resolved_id}
             if not _apply_status(corpus, payload):
-                unresolved_ids.add(payload["id"])
+                unresolved_ids.add(resolved_id)
 
     # Raise if any deferred events still couldn't be applied
     if unresolved_ids:
