@@ -5,8 +5,9 @@ description = "A surveying instrument for contested questions - corpus core"
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.7",
-    "chromadb>=1.0",
+    "chromadb>=1.5,<2",
     "networkx>=3.3",
+    "numpy>=1.26",
 ]
 
 [dependency-groups]

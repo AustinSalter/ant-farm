@@ -1,6 +1,9 @@
 import math
 from collections.abc import Callable
 
+import numpy as np
+from numpy.typing import NDArray
+
 from antfarm.reduce import CorpusNode
 from antfarm.schema import Node
 
@@ -14,26 +17,73 @@ def cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
+def _normalize(vec: list[float]) -> NDArray[np.float64]:
+    arr = np.asarray(vec, dtype=np.float64)
+    norm = np.linalg.norm(arr)
+    return arr / norm if norm else arr
+
+
+class _Bucket:
+    """Normalized candidate vectors for one (type, question_id) bucket."""
+
+    __slots__ = ("ids", "matrix")
+
+    def __init__(self) -> None:
+        self.ids: list[str] = []
+        self.matrix: NDArray[np.float64] | None = None
+
+    def rebuild(self, candidates: list[tuple[str, list[float]]]) -> None:
+        self.ids = [cid for cid, _ in candidates]
+        self.matrix = (np.vstack([_normalize(v) for _, v in candidates])
+                       if candidates else None)
+
+    def append(self, candidates: list[tuple[str, list[float]]]) -> None:
+        if not candidates:
+            return
+        new_rows = np.vstack([_normalize(v) for _, v in candidates])
+        self.ids.extend(cid for cid, _ in candidates)
+        self.matrix = new_rows if self.matrix is None else np.vstack([self.matrix, new_rows])
+
+    def best_match(self, query: NDArray[np.float64]) -> tuple[str | None, float]:
+        if self.matrix is None or not self.ids:
+            return None, 0.0
+        scores = self.matrix @ query
+        idx = int(np.argmax(scores))
+        return self.ids[idx], float(scores[idx])
+
+
 class EmbeddingMatcher:
     def __init__(self, embed_fn: EmbedFn, threshold: float = 0.67):
         self.embed_fn = embed_fn
         self.threshold = threshold
         self._cache: dict[str, list[float]] = {}
+        self._buckets: dict[tuple[str, str], _Bucket] = {}
 
     def _vec(self, text: str) -> list[float]:
         if text not in self._cache:
             self._cache[text] = self.embed_fn([text])[0]
         return self._cache[text]
 
+    def _sync_bucket(self, key: tuple[str, str], nodes: dict[str, CorpusNode]) -> _Bucket:
+        candidate_ids = [cid for cid, c in nodes.items()
+                         if c.type == key[0] and c.question_id == key[1]]
+        bucket = self._buckets.setdefault(key, _Bucket())
+        indexed = set(bucket.ids)
+        current = set(candidate_ids)
+        # nodes are only ever added by the reducer, never removed mid-fold; if a
+        # previously-indexed id is missing from `nodes`, rebuild defensively.
+        if not indexed.issubset(current):
+            bucket.rebuild([(cid, self._vec(nodes[cid].text)) for cid in candidate_ids])
+            return bucket
+        missing = [cid for cid in candidate_ids if cid not in indexed]
+        if missing:
+            bucket.append([(cid, self._vec(nodes[cid].text)) for cid in missing])
+        return bucket
+
     def find_match(self, node: Node, nodes: dict[str, CorpusNode]) -> str | None:
-        query = self._vec(node.text)
-        best_id, best_score = None, 0.0
-        for candidate in nodes.values():
-            if candidate.type != node.type or candidate.question_id != node.question_id:
-                continue
-            score = cosine(query, self._vec(candidate.text))
-            if score > best_score:
-                best_id, best_score = candidate.id, score
+        query = _normalize(self._vec(node.text))
+        bucket = self._sync_bucket((node.type, node.question_id), nodes)
+        best_id, best_score = bucket.best_match(query)
         return best_id if best_score >= self.threshold else None
 
 
