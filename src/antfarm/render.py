@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from antfarm.graph import answered_challengers
+from antfarm.graph import answered_challengers, is_standing_challenge
 from antfarm.reduce import Corpus
 
 _CHALLENGE_VERB = {"rebuts": "rebutted by", "undercuts": "undercut by"}
@@ -35,9 +35,7 @@ def _page(corpus: Corpus, nid: str, answered: set[str]) -> str:
     challenges = [
         e for e in incoming
         if e.rel in _CHALLENGE_VERB
-        and e.src not in answered  # answered challenges are not standing
-        and (challenger := corpus.nodes.get(e.src)) is not None
-        and challenger.status == "live"
+        and is_standing_challenge(e, corpus, answered)
     ]
     if challenges:
         lines.append("## Standing challenges")

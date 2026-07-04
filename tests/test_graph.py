@@ -8,6 +8,7 @@ from antfarm.graph import (
     compute_view,
     extract_cruxes,
     find_unsublated_undercutters,
+    is_standing_challenge,
 )
 from antfarm.reduce import Corpus
 from helpers import make_corpus_node, make_edge
@@ -57,6 +58,18 @@ def test_find_unsublated_undercutters_found_and_cleared():
     # a rebuttal against the undercutter clears it
     corpus.edges.append(make_edge(a_id, d_id, "rebuts"))
     assert find_unsublated_undercutters(corpus) == []
+
+
+def test_extract_cruxes_excludes_superseded_tension():
+    live_tension = make_corpus_node("Grid buildout and demand growth are in tension.",
+                                     type="tension")
+    dead_tension = make_corpus_node("Storage costs and deployment pace are in tension.",
+                                     type="tension", status="superseded")
+    corpus = Corpus(nodes={n.id: n for n in (live_tension, dead_tension)})
+    cent: dict[str, float] = {}
+    result = extract_cruxes(corpus, cent)
+    assert live_tension.id in result
+    assert dead_tension.id not in result
 
 
 def test_answered_challengers_requires_live_answerer():
@@ -114,3 +127,23 @@ def test_view_gate_centrality_floor():
     corpus = Corpus(nodes={n.id: n})
     assert compute_view(corpus, cent={n.id: 0.1}, centrality_floor=0.2) == set()
     assert compute_view(corpus, cent={n.id: 0.3}, centrality_floor=0.2) == {n.id}
+
+
+def test_is_standing_challenge():
+    live_challenger = make_corpus_node("Sensor drift explains the observed anomaly.")
+    dead_challenger = make_corpus_node("An early theory blamed calibration error.",
+                                       status="superseded")
+    target = make_corpus_node("The anomaly reflects a genuine signal.")
+    corpus = Corpus(nodes={n.id: n for n in (live_challenger, dead_challenger, target)})
+
+    live_edge = make_edge(live_challenger.id, target.id, "rebuts")
+    dead_edge = make_edge(dead_challenger.id, target.id, "rebuts")
+    missing_edge = make_edge("missing-node-id", target.id, "rebuts")
+
+    assert is_standing_challenge(live_edge, corpus, answered=set()) is True
+    # challenger is not live -> not standing
+    assert is_standing_challenge(dead_edge, corpus, answered=set()) is False
+    # challenger absent from corpus -> not standing
+    assert is_standing_challenge(missing_edge, corpus, answered=set()) is False
+    # challenger has been answered -> not standing
+    assert is_standing_challenge(live_edge, corpus, answered={live_challenger.id}) is False

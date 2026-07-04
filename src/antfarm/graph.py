@@ -3,6 +3,7 @@ from typing import cast
 import networkx as nx
 
 from antfarm.reduce import Corpus
+from antfarm.schema import Edge
 
 
 def build_graph(corpus: Corpus) -> nx.MultiDiGraph:
@@ -21,8 +22,11 @@ def compute_centrality(g: nx.MultiDiGraph) -> dict[str, float]:
 
 
 def extract_cruxes(corpus: Corpus, cent: dict[str, float], top_k: int = 5) -> list[str]:
-    contested = [nid for nid, node in corpus.nodes.items()
-                 if node.status == "contested" or node.type in ("crux", "tension")]
+    contested = [
+        nid for nid, node in corpus.nodes.items()
+        if node.status == "contested"
+        or (node.type in ("crux", "tension") and node.status in ("live", "contested"))
+    ]
     contested.sort(key=lambda nid: cent.get(nid, 0.0), reverse=True)
     return contested[:top_k]
 
@@ -44,15 +48,23 @@ def answered_challengers(corpus: Corpus) -> set[str]:
     return out
 
 
+def is_standing_challenge(edge: Edge, corpus: Corpus, answered: set[str]) -> bool:
+    """Whether `edge`'s challenger is a live node in `corpus` not yet answered."""
+    challenger = corpus.nodes.get(edge.src)
+    return (challenger is not None
+            and challenger.status == "live"
+            and edge.src not in answered)
+
+
 def find_unsublated_undercutters(corpus: Corpus) -> list[tuple[str, str]]:
     answered = answered_challengers(corpus)
     out = []
     for edge in corpus.edges:
         if edge.rel != "undercuts":
             continue
-        src, dst = corpus.nodes.get(edge.src), corpus.nodes.get(edge.dst)
-        if (src and dst and src.status == "live" and dst.status == "live"
-                and edge.src not in answered):
+        dst = corpus.nodes.get(edge.dst)
+        if (dst is not None and dst.status == "live"
+                and is_standing_challenge(edge, corpus, answered)):
             out.append((edge.src, edge.dst))
     return out
 
