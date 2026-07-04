@@ -1,6 +1,8 @@
 from pathlib import Path
+from typing import cast
 
 import chromadb
+from chromadb.api.types import PyEmbeddings
 
 from antfarm.cluster import EmbedFn
 from antfarm.reduce import Corpus, CorpusNode
@@ -47,18 +49,26 @@ class CorpusStore:
                 collection.add(
                     ids=ids,
                     documents=texts,
-                    embeddings=self.embed_fn(texts),
+                    # chroma's typed API wants its own numpy-aware embedding alias;
+                    # a plain list[list[float]] is what we actually pass at runtime.
+                    embeddings=cast(PyEmbeddings, self.embed_fn(texts)),
                     metadatas=[_metadata(corpus.nodes[nid]) for nid in ids],
                 )
 
     def query(self, collection: str, text: str, n: int = 8,
               where: dict | None = None) -> list[dict]:
         col = self.client.get_collection(collection, embedding_function=None)
-        res = col.query(query_embeddings=[self.embed_fn([text])[0]],
+        res = col.query(query_embeddings=cast(PyEmbeddings, [self.embed_fn([text])[0]]),
                         n_results=n, where=where)
+        # documents/metadatas/distances are typed Optional because `include` is
+        # configurable, but we never omit them, so they are always populated here.
+        documents, metadatas, distances = res["documents"], res["metadatas"], res["distances"]
+        assert documents is not None
+        assert metadatas is not None
+        assert distances is not None
         return [
             {"id": i, "text": doc, "metadata": meta, "distance": dist}
             for i, doc, meta, dist in zip(
-                res["ids"][0], res["documents"][0], res["metadatas"][0], res["distances"][0],
+                res["ids"][0], documents[0], metadatas[0], distances[0],
                 strict=False)
         ]

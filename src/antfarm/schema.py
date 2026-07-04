@@ -1,6 +1,6 @@
 import hashlib
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -80,7 +80,7 @@ class Node(BaseModel):
 
     @classmethod
     def create(cls, *, type: NodeType, text: str, vantage: Vantage,
-               question_id: str, ts: str, **kwargs) -> "Node":
+               question_id: str, ts: str, **kwargs: Any) -> "Node":
         return cls(id=atom_id(type, text), type=type, text=text, vantage=vantage,
                    question_id=question_id, ts=ts, **kwargs)
 

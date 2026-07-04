@@ -1,3 +1,5 @@
+from typing import Protocol
+
 from pydantic import BaseModel, Field
 
 from antfarm.schema import Edge, Node, Vantage
@@ -13,6 +15,16 @@ class CorpusNode(Node):
 class Corpus(BaseModel):
     nodes: dict[str, CorpusNode] = Field(default_factory=dict)
     edges: list[Edge] = Field(default_factory=list)
+
+
+class Matcher(Protocol):
+    """Structural interface for entity-resolution matchers.
+
+    Anything with this method (e.g. antfarm.cluster.EmbeddingMatcher) satisfies
+    this protocol; reduce.py never imports cluster.py to avoid a circular import.
+    """
+
+    def find_match(self, node: Node, nodes: dict[str, CorpusNode]) -> str | None: ...
 
 
 def _observe(existing: CorpusNode, incoming: Node) -> None:
@@ -43,7 +55,7 @@ def _apply_status(corpus: Corpus, payload: dict) -> bool:
     return True
 
 
-def reduce_events(events: list[dict], matcher=None) -> Corpus:
+def reduce_events(events: list[dict], matcher: Matcher | None = None) -> Corpus:
     corpus = Corpus()
     deferred: list[dict] = []  # supersedes/status whose target node hasn't been seen yet
     for ev in events:

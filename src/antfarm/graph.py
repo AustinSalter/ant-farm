@@ -1,3 +1,5 @@
+from typing import cast
+
 import networkx as nx
 
 from antfarm.reduce import Corpus
@@ -14,7 +16,8 @@ def build_graph(corpus: Corpus) -> nx.MultiDiGraph:
 
 
 def compute_centrality(g: nx.MultiDiGraph) -> dict[str, float]:
-    return nx.betweenness_centrality(nx.Graph(g))
+    # networkx ships no inline types; ignore_missing_imports makes its API return Any.
+    return cast("dict[str, float]", nx.betweenness_centrality(nx.Graph(g)))
 
 
 def extract_cruxes(corpus: Corpus, cent: dict[str, float], top_k: int = 5) -> list[str]:
@@ -59,7 +62,7 @@ def blast_radius(g: nx.MultiDiGraph, node_id: str) -> set[str]:
         (u, v) for u, v, data in g.edges(data=True) if data["rel"] == "depends_on")
     if node_id not in dep:
         return set()
-    return nx.ancestors(dep, node_id)
+    return cast("set[str]", nx.ancestors(dep, node_id))
 
 
 def compute_view(corpus: Corpus, cent: dict[str, float],
