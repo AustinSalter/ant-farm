@@ -34,6 +34,15 @@ def test_self_contained_rejects_unresolved_references():
     assert not is_self_contained("The former option dominates.")
 
 
+def test_self_contained_rejects_demonstrative_that_subject():
+    assert not is_self_contained("That proves the thesis.")
+    assert not is_self_contained("That is why solar wins.")
+
+
+def test_self_contained_accepts_that_nominal_clause():
+    assert is_self_contained("That solar is cheap is well documented.")
+
+
 TEXT = "Solar LCOE fell 90% between 2010 and 2020."
 
 

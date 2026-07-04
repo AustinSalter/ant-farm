@@ -28,10 +28,17 @@ def atom_id(node_type: str, text: str) -> str:
     return f"{ID_PREFIX[node_type]}-{digest[:12]}"
 
 
-# "that" is deliberately absent: "That solar is cheap is well documented" is self-contained
+# Bare "that" is deliberately absent from the leading-pronoun alternation below:
+# "That solar is cheap is well documented" opens a nominal clause ("that" + noun
+# phrase), which is self-contained. But "that" is also a demonstrative pronoun
+# subject ("That proves the thesis"), structurally identical to "this"/"it", which
+# must be rejected. We only catch the demonstrative case: a leading "that"
+# immediately followed by a verb rather than a noun phrase.
 _UNRESOLVED = re.compile(
     r"^(it|this|they|these|those|he|she)\b"
-    r"|\b(the above|the former|the latter|as mentioned|as noted)\b",
+    r"|\b(the above|the former|the latter|as mentioned|as noted)\b"
+    r"|^that\s+(?:proves|shows|means|implies|explains|follows|demonstrates|confirms|"
+    r"suggests|contradicts|settles|is|was|does|did|would|will|can|cannot|won't|doesn't)\b",
     re.IGNORECASE,
 )
 
