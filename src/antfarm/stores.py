@@ -35,7 +35,9 @@ class CorpusStore:
         existing = {getattr(c, "name", c) for c in self.client.list_collections()}
         if name in existing:
             self.client.delete_collection(name)
-        return self.client.create_collection(name)
+        # embedding_function=None: omitting it silently attaches chroma's default
+        # ONNX EmbeddingFunction; embeddings are always passed explicitly here.
+        return self.client.create_collection(name, embedding_function=None)
 
     def rebuild(self, corpus: Corpus, view_ids: set[str]) -> None:
         for name, ids in (("well", list(corpus.nodes)), ("view", list(view_ids))):
@@ -51,7 +53,7 @@ class CorpusStore:
 
     def query(self, collection: str, text: str, n: int = 8,
               where: dict | None = None) -> list[dict]:
-        col = self.client.get_collection(collection)
+        col = self.client.get_collection(collection, embedding_function=None)
         res = col.query(query_embeddings=[self.embed_fn([text])[0]],
                         n_results=n, where=where)
         return [
