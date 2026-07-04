@@ -10,15 +10,17 @@ from antfarm.reduce import Corpus, CorpusNode
 
 def _metadata(node: CorpusNode) -> dict:
     # Single-value keys (farm/family/persona/round/sensor) reflect only the
-    # originating vantage. Chroma metadata cannot hold list values, so every
-    # vantage the atom has been sighted from (node.vantages) is additionally
-    # flattened into comma-joined, sorted, deduplicated CSV keys below. These
-    # carry all sighting vantages for post-filtering in Python; chroma has no
-    # substring operator, so an exact-match `where` on a CSV key only matches
-    # the full CSV string (e.g. {"families": "claude,gpt"}), not one member.
-    families = ",".join(sorted({v.family for v in node.vantages}))
-    farms = ",".join(sorted({v.farm for v in node.vantages}))
-    personas = ",".join(sorted({v.persona for v in node.vantages}))
+    # originating vantage. Boolean keys (farm_*/family_*/persona_*) are set
+    # for every vantage the atom has been sighted from (node.vantages, deduped
+    # via dict keys), so they cover any sighting, not just the originating
+    # one. Chroma metadata cannot hold list values, and has no substring
+    # operator, so these are one-boolean-per-member rather than a CSV blob -
+    # each is safe for an exact-match `where` filter, e.g. {"family_gpt": True}.
+    vantage_flags = {}
+    for v in node.vantages:
+        vantage_flags[f"family_{v.family}"] = True
+        vantage_flags[f"farm_{v.farm}"] = True
+        vantage_flags[f"persona_{v.persona}"] = True
     return {
         "type": node.type,
         "status": node.status,
@@ -30,9 +32,7 @@ def _metadata(node: CorpusNode) -> dict:
         "persona": node.vantage.persona,
         "round": node.vantage.round,
         "sensor": node.vantage.sensor,
-        "families": families,
-        "farms": farms,
-        "personas": personas,
+        **vantage_flags,
         "n_vantages": len(node.vantages),
     }
 

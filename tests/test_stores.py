@@ -60,7 +60,7 @@ def test_rebuild_is_idempotent():
     assert len(store.query("well", "solar", n=10)) == 2
 
 
-def test_metadata_carries_all_sighting_vantages():
+def test_metadata_boolean_keys_cover_every_sighting_vantage():
     corpus = Corpus()
     n = make_corpus_node("Grid storage capacity limits solar deployment growth.",
                          verified=True)
@@ -70,9 +70,16 @@ def test_metadata_carries_all_sighting_vantages():
     store.rebuild(corpus, set(corpus.nodes))
     hits = store.query("well", "solar", n=10)
     meta = hits[0]["metadata"]
-    assert meta["families"] == "claude,gpt"
-    assert meta["farms"] == "A,B"
-    assert meta["personas"] == "analyst,skeptic"
+    assert meta["family_claude"] is True
+    assert meta["family_gpt"] is True
+    assert meta["farm_A"] is True
+    assert meta["farm_B"] is True
+    assert meta["persona_analyst"] is True
+    assert meta["persona_skeptic"] is True
     assert meta["n_vantages"] == 2
     # single-value keys still reflect the originating vantage
     assert meta["family"] == "claude"
+    # the footgun the CSV design couldn't satisfy: an exact-match where
+    # filter on a non-originating vantage member must still find the node
+    filtered = store.query("well", "solar", n=10, where={"family_gpt": True})
+    assert {h["id"] for h in filtered} == {n.id}
