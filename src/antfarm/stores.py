@@ -9,6 +9,14 @@ from antfarm.reduce import Corpus, CorpusNode
 
 
 def _metadata(node: CorpusNode) -> dict:
+    # Single-value keys (farm/family/persona/round/sensor) reflect only the
+    # originating vantage. Chroma metadata cannot hold list values, so every
+    # vantage the atom has been sighted from (node.vantages) is additionally
+    # flattened into comma-joined, sorted, deduplicated CSV keys below, which
+    # `where` queries can match against any sighting rather than just the first.
+    families = ",".join(sorted({v.family for v in node.vantages}))
+    farms = ",".join(sorted({v.farm for v in node.vantages}))
+    personas = ",".join(sorted({v.persona for v in node.vantages}))
     return {
         "type": node.type,
         "status": node.status,
@@ -20,6 +28,10 @@ def _metadata(node: CorpusNode) -> dict:
         "persona": node.vantage.persona,
         "round": node.vantage.round,
         "sensor": node.vantage.sensor,
+        "families": families,
+        "farms": farms,
+        "personas": personas,
+        "n_vantages": len(node.vantages),
     }
 
 

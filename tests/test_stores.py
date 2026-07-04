@@ -4,7 +4,7 @@ import chromadb
 
 from antfarm.reduce import Corpus
 from antfarm.stores import CorpusStore
-from helpers import make_corpus_node
+from helpers import make_corpus_node, make_vantage
 
 
 def hash_embed(texts: list[str]) -> list[list[float]]:
@@ -58,3 +58,21 @@ def test_rebuild_is_idempotent():
     store.rebuild(corpus, set())
     store.rebuild(corpus, set())  # must not raise or duplicate
     assert len(store.query("well", "solar", n=10)) == 2
+
+
+def test_metadata_carries_all_sighting_vantages():
+    corpus = Corpus()
+    n = make_corpus_node("Grid storage capacity limits solar deployment growth.",
+                         verified=True)
+    n.vantages.append(make_vantage(farm="B", family="gpt", persona="skeptic"))
+    corpus.nodes[n.id] = n
+    store = _store()
+    store.rebuild(corpus, set(corpus.nodes))
+    hits = store.query("well", "solar", n=10)
+    meta = hits[0]["metadata"]
+    assert meta["families"] == "claude,gpt"
+    assert meta["farms"] == "A,B"
+    assert meta["personas"] == "analyst,skeptic"
+    assert meta["n_vantages"] == 2
+    # single-value keys still reflect the originating vantage
+    assert meta["family"] == "claude"
