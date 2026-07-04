@@ -1,7 +1,10 @@
+import pytest
+
 from antfarm.graph import (
     blast_radius,
     build_graph,
     compute_centrality,
+    compute_view,
     extract_cruxes,
     find_unsublated_undercutters,
 )
@@ -53,3 +56,32 @@ def test_find_unsublated_undercutters_found_and_cleared():
     # a rebuttal against the undercutter clears it
     corpus.edges.append(make_edge(a_id, d_id, "rebuts"))
     assert find_unsublated_undercutters(corpus) == []
+
+
+GATE_TEXT = "Verified live claims about solar economics enter the view."
+
+
+@pytest.mark.parametrize("kwargs,admitted", [
+    ({"verified": True}, True),
+    ({"verified": False}, False),
+    ({"verified": True, "status": "contested"}, False),
+    ({"verified": True, "status": "superseded"}, False),
+])
+def test_view_gate_admission(kwargs, admitted):
+    n = make_corpus_node(GATE_TEXT, **kwargs)
+    corpus = Corpus(nodes={n.id: n})
+    assert (n.id in compute_view(corpus, cent={})) is admitted
+
+
+def test_view_gate_excludes_non_diagnostic_evidence():
+    n = make_corpus_node("Both hypotheses predict rising battery production.",
+                         type="evidence", verified=True, diagnosticity="none")
+    corpus = Corpus(nodes={n.id: n})
+    assert compute_view(corpus, cent={}) == set()
+
+
+def test_view_gate_centrality_floor():
+    n = make_corpus_node(GATE_TEXT, verified=True)
+    corpus = Corpus(nodes={n.id: n})
+    assert compute_view(corpus, cent={n.id: 0.1}, centrality_floor=0.2) == set()
+    assert compute_view(corpus, cent={n.id: 0.3}, centrality_floor=0.2) == {n.id}

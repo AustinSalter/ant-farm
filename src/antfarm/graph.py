@@ -49,3 +49,14 @@ def blast_radius(g: nx.MultiDiGraph, node_id: str) -> set[str]:
     if node_id not in dep:
         return set()
     return nx.ancestors(dep, node_id)
+
+
+def compute_view(corpus: Corpus, cent: dict[str, float],
+                 centrality_floor: float = 0.0) -> set[str]:
+    return {
+        nid for nid, node in corpus.nodes.items()
+        if node.status == "live"
+        and node.verified
+        and node.diagnosticity != "none"
+        and cent.get(nid, 0.0) >= centrality_floor
+    }
