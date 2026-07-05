@@ -2925,15 +2925,19 @@ git commit -m "feat: materialize - view, stores, vault, keel exports, tripwire r
 
 ### Task 10: The agent definitions
 
-Eight files under `.claude/agents/`: the seven survey roles (spec §3) plus the mechanical clerk. These are consumed by `agent(..., {agentType: '<name>'})` in the workflow. Keep each under ~50 lines; iron laws in the first lines (primacy bias, spec §9.1 style rules).
+> **Amended 2026-07-05 (mid-execution, before this task started):** the agent files are thin routers; the proven pass content from dialectic-plugin v1 is PORTED into reference files, not re-derived. Spec §9.1 mandates "kept and sharpened" — a 50-line from-scratch prompt discards prompt content already proven to improve reasoning (meta-probes, preservation gate, elevation test, evidence gates, fact-check protocol, worked examples). Step 4 below is the port; scout and blind-critic Read their pass files at runtime.
+
+Eight files under `.claude/agents/`: the seven survey roles (spec §3) plus the mechanical clerk. These are consumed by `agent(..., {agentType: '<name>'})` in the workflow. Keep each under ~50 lines; iron laws in the first lines (primacy bias, spec §9.1 style rules). The agent `.md` is the router; depth lives in `.claude/skills/survey/references/` (hub-and-spoke, spec §9.1).
 
 **Files:**
 - Create: `.claude/agents/surveyor.md`, `.claude/agents/scout.md`, `.claude/agents/blind-critic.md`, `.claude/agents/hole-finder.md`, `.claude/agents/stitcher.md`, `.claude/agents/sentinel.md`, `.claude/agents/curator.md`, `.claude/agents/clerk.md`
+- Create: `.claude/skills/survey/references/expansion.md`, `.claude/skills/survey/references/compression.md`, `.claude/skills/survey/references/sublation-and-decision.md`, `.claude/skills/survey/references/critique-probes.md` (ported — see Step 4)
+- Source (read-only, sibling repo): `../dialectic-plugin/skills/dialectic/{EXPANSION,COMPRESSION,CRITIQUE,MARKERS}.md`
 - Test: `tests/test_agents.py`
 
 **Interfaces:**
-- Consumes: nothing from the package (prose only)
-- Produces: agent types `surveyor`, `scout`, `blind-critic`, `hole-finder`, `stitcher`, `sentinel`, `curator`, `clerk` resolvable by the Workflow runtime's `agentType` option
+- Consumes: the proven dialectic v1 pass files named above (prose only)
+- Produces: agent types `surveyor`, `scout`, `blind-critic`, `hole-finder`, `stitcher`, `sentinel`, `curator`, `clerk` resolvable by the Workflow runtime's `agentType` option; pass reference files Read by scout and blind-critic at runtime
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2971,6 +2975,24 @@ def test_blinding_rules_are_stated():
     assert "authorless" in critic or "third-party" in critic
     scout = (AGENTS_DIR / "scout.md").read_text(encoding="utf-8")
     assert "view" in scout and "well" in scout  # routing rule is written down
+
+
+REFERENCES = ["expansion", "compression", "sublation-and-decision", "critique-probes"]
+REFS_DIR = Path(__file__).parent.parent / ".claude" / "skills" / "survey" / "references"
+
+
+def test_pass_reference_files_are_ported_not_stubbed():
+    for name in REFERENCES:
+        text = (REFS_DIR / f"{name}.md").read_text(encoding="utf-8")
+        assert len(text.splitlines()) >= 60, f"{name}.md looks stubbed - port the source content"
+
+
+def test_routers_point_at_their_pass_files():
+    scout = (AGENTS_DIR / "scout.md").read_text(encoding="utf-8")
+    for name in ("expansion", "compression", "sublation-and-decision"):
+        assert f"references/{name}.md" in scout, f"scout.md must route to {name}.md"
+    critic = (AGENTS_DIR / "blind-critic.md").read_text(encoding="utf-8")
+    assert "references/critique-probes.md" in critic
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -3055,7 +3077,11 @@ You run one round of one reasoning farm (Phase 2). Iron laws:
 4. When an edge targets existing material, quote the target's text EXACTLY as
    it appears; references resolve by exact text or corpus id.
 
-Round protocol, in order:
+Round protocol, in order. Before each pass, Read its pass file under
+`.claude/skills/survey/references/` — expansion.md, compression.md,
+sublation-and-decision.md. They carry the full protocol (meta-probes,
+preservation gate, elevation test, evidence gates, worked examples); this
+file is only the router.
 - Sublate: read `critiques/*.json` in your farm dir. For each unaddressed
   finding: accept it (change your state), rebut it (emit a claim + rebuts
   edge), or qualify your thesis. Preservation gate: carry forward what the
@@ -3097,7 +3123,9 @@ You review a reasoning trace you did not write (Phase 3). Iron laws:
    (the inference is unlicensed). Grade severity low/med/high - high means
    the thesis cannot stand if this holds.
 
-Required probes:
+Required probes — Read `.claude/skills/survey/references/critique-probes.md`
+first; it carries the full probe protocol (meta-probes, fact-check-with-search,
+severity calibration). This file is only the router.
 - Warrant probe: attack the licence of the strongest supports-inference, not
   its grounds.
 - Premortem: "It is 12 months from now and the thesis failed - write the
@@ -3211,17 +3239,32 @@ staleness sensors); and the holes the hole-finder exposed. Wikilink node ids
 in [[double brackets]] so Obsidian resolves them to the rendered pages.
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Port the proven pass files from dialectic-plugin**
+
+Source: the sibling repo's skill files at `../dialectic-plugin/skills/dialectic/` (same Projects directory as ant-farm). These are the prompt files proven in dialectic v1; spec §9.1 says this content is "kept and sharpened" — port and adapt, do not write fresh. If the sibling repo is missing, STOP and report BLOCKED; do not substitute from memory.
+
+Create four files under `.claude/skills/survey/references/`, each roughly 2–3k tokens (spec §9.1's per-pass size), by adapting:
+
+- `expansion.md` ← `EXPANSION.md` — keep the meta-probes, abductive anomaly pursuit, fact-grounding habits, and worked examples; adapt vocabulary: session/thesis → farm/hypothesis; retrieval is the VIEW collection only; markers become edges per `MARKERS.md` (`[BRIDGE: A→B]` → bridges edge, rebuttal markers → rebuts/undercuts edges, support with stated licence → supports edge + warrant).
+- `compression.md` ← `COMPRESSION.md` — the compressed-state paragraph contract (thesis, strongest support, live risks) and confidence discipline; R/E/C stay ordinal bands, the composite is deleted (spec §9.1).
+- `sublation-and-decision.md` ← `CRITIQUE.md` sections "Preservation Gate", "Elevation Test", "Evidence Gate for ELEVATE", and "Decision" — this is scout's sublate/decide protocol: disposition per critique (accept/rebut/qualify), carry forward what the critique did not kill, excise what it did, honest ledger entries, CONTINUE | CONCLUDE | ELEVATE | CONCEDE criteria.
+- `critique-probes.md` ← `CRITIQUE.md` sections "Meta-Probes" and "Fact-Check with Web Search", plus severity grading and the rebutting-vs-undercutting distinction — blind-critic's protocol.
+
+Strip from all four: stop-hook/session mechanics, HOLDOUT, output-format sections tied to v1 transcript scraping, and the contradictory R/E/C composite (all deleted by spec §9.1). Keep worked examples that translate; where one does not, note it under a closing `## Adaptation notes` heading rather than dropping it silently.
+
+Style gate (spec §9.1): dispatch the `dialectic:prose-reviewer` agent over each ported file — one sentence = one executable instruction; imperative, positive, present; emphasis by position, not caps; one concrete example over three adjectives; one term per concept. Apply Critical/Important findings before committing. If the `dialectic:prose-reviewer` agent type is unavailable in this session, record that in the task report — do not skip silently.
+
+- [ ] **Step 5: Run test to verify it passes**
 
 Run: `uv run pytest tests/test_agents.py -v`
-Expected: 2 passed
+Expected: 4 passed
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 uv run ruff check src tests
-git add .claude/agents tests/test_agents.py
-git commit -m "feat: seven survey agent definitions plus mechanical clerk"
+git add .claude/agents .claude/skills/survey/references tests/test_agents.py
+git commit -m "feat: survey agent routers + pass references ported from proven dialectic v1 skills"
 ```
 
 ---
