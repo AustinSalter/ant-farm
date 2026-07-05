@@ -1,5 +1,8 @@
+import hashlib
+import json
 import math
 from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 from numpy.typing import NDArray
@@ -99,3 +102,41 @@ def entailment_clusters(texts: list[str], embed_fn: EmbedFn,
         else:
             clusters.append([i])
     return clusters
+
+
+def trigram_embed(texts: list[str]) -> list[list[float]]:
+    """Deterministic 32-dim character-trigram embedding. For tests and offline
+    smoke runs (ANTFARM_EMBED=trigram) - not a semantic model."""
+    out = []
+    for text in texts:
+        vec = [0.0] * 32
+        low = text.lower()
+        for i in range(len(low) - 2):
+            tri = low[i:i + 3].encode()
+            vec[int.from_bytes(hashlib.sha256(tri).digest()[:2], "big") % 32] += 1.0
+        out.append(vec)
+    return out
+
+
+class CachedEmbed:
+    """File-backed embedding cache keyed by text hash, so repeated CLI
+    invocations (gate, probe, materialize) don't re-embed the whole corpus."""
+
+    def __init__(self, path: Path, base: EmbedFn):
+        self.path = path
+        self.base = base
+        self._cache: dict[str, list[float]] = (
+            json.loads(path.read_text(encoding="utf-8")) if path.exists() else {})
+
+    @staticmethod
+    def _key(text: str) -> str:
+        return hashlib.sha256(text.encode()).hexdigest()[:24]
+
+    def __call__(self, texts: list[str]) -> list[list[float]]:
+        missing = [t for t in texts if self._key(t) not in self._cache]
+        if missing:
+            for text, vec in zip(missing, self.base(missing), strict=True):
+                self._cache[self._key(text)] = vec
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(json.dumps(self._cache), encoding="utf-8")
+        return [self._cache[self._key(t)] for t in texts]

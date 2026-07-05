@@ -129,3 +129,24 @@ def test_merge_fidelity_with_real_embeddings():
         assert len(entailment_clusters([a, b], embed, threshold=0.67)) == 1, (a, b)
     for a, b in DISTINCT_PAIRS:
         assert len(entailment_clusters([a, b], embed, threshold=0.67)) == 2, (a, b)
+
+
+def test_trigram_embed_deterministic_and_cached(tmp_path):
+    from antfarm.cluster import CachedEmbed, trigram_embed
+
+    a = trigram_embed(["storage lags panels"])
+    assert a == trigram_embed(["storage lags panels"])
+
+    calls = []
+
+    def counting(texts):
+        calls.append(list(texts))
+        return trigram_embed(texts)
+
+    cached = CachedEmbed(tmp_path / "cache.json", counting)
+    first = cached(["one text", "two text"])
+    second = cached(["one text", "two text"])
+    assert first == second and len(calls) == 1
+    # a fresh instance reads the file, no base calls
+    reloaded = CachedEmbed(tmp_path / "cache.json", counting)
+    assert reloaded(["one text"]) == [first[0]] and len(calls) == 1
