@@ -21,7 +21,7 @@
 - **Event filenames sort chronologically** within a run dir: `p0-sentinel`, `p1-framing`, `p2-farm{F}-r{NN}`, `p3-farm{F}-r{NN}`, `p4-verify`, `p5-stitch`, `p6-{farm}`, `p7-materialize` (rounds zero-padded to 2). Run dirs are `r0001`-style (plan 1 constraint).
 - **Corpus directory layout** (one corpus dir per question): `runs/` (event JSONL only — `read_events` rglobs `*.jsonl`, so **nothing else** under `runs/` may use that extension; sidecars are `.json`), `farms/<run>/<farm>/` (turns.jsonl, ledger.jsonl, triggers.jsonl, critiques/, meta.json, outcome.json), `chroma/`, `vault/`, `exports/<run>/<farm>/` (keel export), `emb-cache.json`, `question.json`.
 - **Model families:** the workflow runtime exposes only Anthropic tiers; `vantage.family` records the tier (`opus`/`sonnet`/`haiku`), rotated across farms via `agent()`'s `model` option. Cross-provider routing is out of scope (spec §12); whether tier+persona diversity yields n_eff > 1.5 is plan 3's measurement (spec §13.2).
-- Tests marked `@pytest.mark.eval` use real embedding models; default `pytest` excludes them. Deterministic tests and the pipeline smoke script use `ANTFARM_EMBED=trigram` (no downloads).
+- Tests marked `@pytest.mark.eval` use real embedding models; default `pytest` excludes them. Deterministic tests and the pipeline smoke script use `ANTFARM_EMBED=hash` (no downloads). The offline embedding is `hash_embed`: 256-dim hashed word unigrams+bigrams — 32-dim char-trigram vectors were too dense (nearly all English sentence pairs exceeded the 0.67 entailment threshold, so distinct fixture atoms spuriously merged; amended 2026-07-05 during execution).
 - Run `uv run ruff check src tests` (line length 100) and `uv run mypy src` before every commit; both must pass clean.
 - Use `X | None`, never `Optional[X]`. Shared test builders live in `tests/helpers.py`; never re-declare them.
 - New test modules must be added to the `disallow_untyped_defs = false` mypy override list in `pyproject.toml` (mypy cannot wildcard bare module names) — Task 1 adds them all at once.
@@ -1918,10 +1918,10 @@ git commit -m "feat: farm state dirs and computed briefs (warm start, stitch, ve
 
 ### Task 8: The `python -m antfarm` CLI — the workflow's only door into the corpus
 
-Every deterministic pipeline step is a subcommand emitting one JSON object on stdout. The workflow's clerk agent runs these; nothing else writes to the corpus. Also adds the offline `trigram_embed` and a file-backed embedding cache so repeated CLI invocations don't re-embed the corpus.
+Every deterministic pipeline step is a subcommand emitting one JSON object on stdout. The workflow's clerk agent runs these; nothing else writes to the corpus. Also adds the offline `hash_embed` and a file-backed embedding cache so repeated CLI invocations don't re-embed the corpus.
 
 **Files:**
-- Modify: `src/antfarm/cluster.py` (append `trigram_embed`, `CachedEmbed`)
+- Modify: `src/antfarm/cluster.py` (append `hash_embed`, `CachedEmbed`)
 - Create: `src/antfarm/cli.py`
 - Create: `src/antfarm/__main__.py`
 - Test: `tests/test_cli.py`
@@ -1929,7 +1929,7 @@ Every deterministic pipeline step is a subcommand emitting one JSON object on st
 
 **Interfaces:**
 - Consumes: everything from Tasks 1–7 plus plan 1 (`read_events`, `append_events`, `reduce_events`, `EmbeddingMatcher`, `CorpusStore`)
-- Produces: `trigram_embed(texts) -> list[list[float]]` (deterministic 32-dim, no downloads); `CachedEmbed(path: Path, base: EmbedFn)` callable; `antfarm.cli.main(argv: list[str] | None = None) -> dict` (parses, dispatches, prints JSON, returns the dict); env switch `ANTFARM_EMBED=trigram`; subcommands: `schemas`, `run-new`, `brief`, `farm-init`, `harvest-framing`, `harvest-scout`, `harvest-critique`, `harvest-verify`, `harvest-stitch`, `harvest-atoms`, `gate`, `verification-queue`, `probe`, `query`, `tripwires-list`, `tripwire-fire`, `stitch-brief`, `farm-outcome`, `persona-swap-prepare`, `persona-swap-write`, `map-write` (Task 9 adds `materialize`). All take `--corpus DIR` (default `corpus`) and, where they read a payload, `--input PATH` (`-` = stdin)
+- Produces: `hash_embed(texts) -> list[list[float]]` (deterministic 256-dim hashed word unigrams+bigrams, no downloads — discriminative enough that distinct sentences stay below the 0.67 threshold while identical text scores 1.0); `CachedEmbed(path: Path, base: EmbedFn)` callable; `antfarm.cli.main(argv: list[str] | None = None) -> dict` (parses, dispatches, prints JSON, returns the dict); env switch `ANTFARM_EMBED=hash`; subcommands: `schemas`, `run-new`, `brief`, `farm-init`, `harvest-framing`, `harvest-scout`, `harvest-critique`, `harvest-verify`, `harvest-stitch`, `harvest-atoms`, `gate`, `verification-queue`, `probe`, `query`, `tripwires-list`, `tripwire-fire`, `stitch-brief`, `farm-outcome`, `persona-swap-prepare`, `persona-swap-write`, `map-write` (Task 9 adds `materialize`). All take `--corpus DIR` (default `corpus`) and, where they read a payload, `--input PATH` (`-` = stdin)
 - Produces (helpers): `helpers.framing_fixture() -> dict`, `helpers.scout_fixture(round, decision, **overrides) -> dict`, `helpers.critique_fixture() -> dict` — canonical pipeline payloads shared by `test_cli`, `test_materialize`
 
 Event file labels written by the CLI (chronological within a run dir): `p0-sentinel`, `p1-framing`, `p1-farm{F}-init`, `p2-farm{F}-r{NN}`, `p2z-farm{F}-outcome`, `p3-farm{F}-r{NN}`, `p4-verify`, `p5-stitch`, `p6-{farm}`, `p7-materialize`. (`p2z…` sorts after every `p2-farm{F}-rNN` file and before `p3…` because `-` orders before `z` and `2z` before `3` — the reducer replays in sorted path order.)
@@ -1945,16 +1945,19 @@ Design notes locked here:
 Add `import hashlib`, `import json`, and `from pathlib import Path` to the imports, then append:
 
 ```python
-def trigram_embed(texts: list[str]) -> list[list[float]]:
-    """Deterministic 32-dim character-trigram embedding. For tests and offline
-    smoke runs (ANTFARM_EMBED=trigram) - not a semantic model."""
+def hash_embed(texts: list[str]) -> list[list[float]]:
+    """Deterministic 256-dim hashed word unigram+bigram embedding. For tests and
+    offline smoke runs (ANTFARM_EMBED=hash) - not a semantic model. Word grams in
+    256 dims keep distinct sentences well below the 0.67 entailment threshold
+    (char trigrams did not: nearly all English pairs merged)."""
     out = []
     for text in texts:
-        vec = [0.0] * 32
-        low = text.lower()
-        for i in range(len(low) - 2):
-            tri = low[i:i + 3].encode()
-            vec[int.from_bytes(hashlib.sha256(tri).digest()[:2], "big") % 32] += 1.0
+        vec = [0.0] * 256
+        words = text.lower().split()
+        grams = words + [f"{a} {b}" for a, b in zip(words, words[1:], strict=False)]
+        for gram in grams:
+            digest = hashlib.sha256(gram.encode()).digest()
+            vec[int.from_bytes(digest[:2], "big") % 256] += 1.0
         out.append(vec)
     return out
 
@@ -1986,17 +1989,22 @@ class CachedEmbed:
 Add a quick test to `tests/test_cluster.py`:
 
 ```python
-def test_trigram_embed_deterministic_and_cached(tmp_path):
-    from antfarm.cluster import CachedEmbed, trigram_embed
+def test_hash_embed_deterministic_discriminative_and_cached(tmp_path):
+    from antfarm.cluster import CachedEmbed, cosine, hash_embed
 
-    a = trigram_embed(["storage lags panels"])
-    assert a == trigram_embed(["storage lags panels"])
+    a = hash_embed(["storage lags panels"])
+    assert a == hash_embed(["storage lags panels"])
+    # identical text scores 1.0; distinct sentences stay below the 0.67 threshold
+    pair = hash_embed(["Storage constraints bind solar growth through 2030.",
+                       "No single constraint binds solar growth through 2030."])
+    assert cosine(pair[0], pair[0]) == pytest.approx(1.0)
+    assert cosine(pair[0], pair[1]) < 0.67
 
     calls = []
 
     def counting(texts):
         calls.append(list(texts))
-        return trigram_embed(texts)
+        return hash_embed(texts)
 
     cached = CachedEmbed(tmp_path / "cache.json", counting)
     first = cached(["one text", "two text"])
@@ -2101,7 +2109,7 @@ QUESTION = "What limits US solar growth through 2030?"
 
 @pytest.fixture(autouse=True)
 def _offline_embeddings(monkeypatch):
-    monkeypatch.setenv("ANTFARM_EMBED", "trigram")
+    monkeypatch.setenv("ANTFARM_EMBED", "hash")
 
 
 @pytest.fixture()
@@ -2249,7 +2257,7 @@ from pydantic import TypeAdapter
 from antfarm import brief as brief_mod
 from antfarm import farm as farm_mod
 from antfarm.analysis import ach_winner, derive_e
-from antfarm.cluster import CachedEmbed, EmbeddingMatcher, EmbedFn, trigram_embed
+from antfarm.cluster import CachedEmbed, EmbeddingMatcher, EmbedFn, hash_embed
 from antfarm.counterfactual import persona_swap, regenerated_to_turns, swap_package
 from antfarm.emission import (
     AtomBatch,
@@ -2290,8 +2298,8 @@ def question_id_for(text: str) -> str:
 
 def get_embed(corpus_dir: Path) -> EmbedFn:
     cache = corpus_dir / "emb-cache.json"
-    if os.environ.get("ANTFARM_EMBED") == "trigram":
-        return CachedEmbed(cache, trigram_embed)
+    if os.environ.get("ANTFARM_EMBED") == "hash":
+        return CachedEmbed(cache, hash_embed)
     from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 
     ef = DefaultEmbeddingFunction()
@@ -2724,7 +2732,7 @@ QUESTION = "What limits US solar growth through 2030?"
 
 @pytest.fixture(autouse=True)
 def _offline_embeddings(monkeypatch):
-    monkeypatch.setenv("ANTFARM_EMBED", "trigram")
+    monkeypatch.setenv("ANTFARM_EMBED", "hash")
 
 
 def run_cli(corpus_dir, *argv, payload=None):
@@ -3821,7 +3829,7 @@ repo dependencies synced (`uv sync`).
 Drives the CLI exactly as workflows/survey.js does - fixture agent outputs in,
 JSON out - through: run-new -> framing -> two farms (one CONCLUDE, one CONCEDE)
 with critique and gates -> verification floor -> stitch -> probe -> materialize.
-Offline: ANTFARM_EMBED=trigram, no model downloads.
+Offline: ANTFARM_EMBED=hash, no model downloads.
 
 Run: uv run python scripts/smoke_pipeline.py
 """
@@ -3849,7 +3857,7 @@ def cli(corpus: Path, *argv: str, payload=None):
     if payload is not None:
         cmd += ["--input", "-"]
         kwargs["input"] = json.dumps(payload)
-    env = {**os.environ, "ANTFARM_EMBED": "trigram"}
+    env = {**os.environ, "ANTFARM_EMBED": "hash"}
     proc = subprocess.run(cmd, capture_output=True, text=True, env=env, **kwargs)
     if proc.returncode != 0:
         sys.exit(f"command failed: {' '.join(cmd)}\n{proc.stderr}")
