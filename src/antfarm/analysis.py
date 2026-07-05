@@ -9,21 +9,23 @@ from antfarm.reduce import Corpus
 
 
 def ach_scores(corpus: Corpus, question_id: str) -> dict:
+    hypotheses = {nid for nid, n in corpus.nodes.items()
+                  if n.type == "hypothesis" and n.question_id == question_id}
     cells: dict[str, dict[str, str]] = defaultdict(dict)
     for edge in corpus.edges:
         if edge.rel != "scored_against" or edge.consistency is None:
             continue
+        if edge.dst not in hypotheses:
+            continue
         cells[edge.src][edge.dst] = edge.consistency
     discarded = sorted(ev for ev, row in cells.items()
                        if len(row) >= 2 and "inconsistent" not in row.values())
-    hypotheses = {nid for nid, n in corpus.nodes.items()
-                  if n.type == "hypothesis" and n.question_id == question_id}
     inconsistency = dict.fromkeys(sorted(hypotheses), 0)
     for ev, row in cells.items():
         if ev in discarded:
             continue
         for hyp, consistency in row.items():
-            if consistency == "inconsistent" and hyp in inconsistency:
+            if consistency == "inconsistent":
                 inconsistency[hyp] += 1
     return {"inconsistency": inconsistency, "discarded_nondiagnostic": discarded}
 

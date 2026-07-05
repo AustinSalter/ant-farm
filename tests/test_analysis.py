@@ -35,6 +35,30 @@ def test_tie_yields_no_winner():
     assert sorted(result["tied"]) == sorted([h1_id, h2_id])
 
 
+def test_ach_scoring_is_question_scoped():
+    corpus, h1_id, h2_id, e2_id = _ach_corpus()
+    other_q = make_corpus_node("An unrelated hypothesis for a different question.",
+                               type="hypothesis")
+    other_q = other_q.model_copy(update={"question_id": "q-other"})
+    corpus.nodes[other_q.id] = other_q
+    e1_id = next(e.src for e in corpus.edges if e.consistency == "inconsistent")
+    corpus.edges.append(make_edge(e1_id, other_q.id, "scored_against",
+                                  consistency="consistent"))
+    # evidence scored against one q-1 hypothesis and one q-other hypothesis:
+    # the cross-question cell must not make it look non-diagnostic for q-1
+    e3 = make_corpus_node("Texas added record utility-scale storage in 2025.",
+                          type="evidence")
+    corpus.nodes[e3.id] = e3
+    corpus.edges.append(make_edge(e3.id, h1_id, "scored_against",
+                                  consistency="consistent"))
+    corpus.edges.append(make_edge(e3.id, other_q.id, "scored_against",
+                                  consistency="consistent"))
+    result = ach_winner(corpus, "q-1")
+    assert e1_id not in result["discarded_nondiagnostic"]
+    assert result["discarded_nondiagnostic"] == [e2_id]
+    assert result["winner"] == h1_id
+
+
 def test_derive_e_counts_live_verified_high_diagnostic_evidence():
     corpus = Corpus()
     assert derive_e(corpus, "q-1") == "low"
