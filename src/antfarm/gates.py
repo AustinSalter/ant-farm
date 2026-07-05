@@ -29,6 +29,10 @@ def farm_node_ids(corpus: Corpus, farm: str) -> set[str]:
             if any(v.farm == farm for v in node.vantages)}
 
 
+_EXHAUSTED = "round budget exhausted"
+_DEGENERATE = "degeneration ledger: two consecutive novel-content-free patches"
+
+
 def conclude_blockers(corpus: Corpus, farm: str, triggers: list[TriggerEmission],
                       ledger: list[LedgerEntry]) -> list[str]:
     reasons = []
@@ -41,13 +45,8 @@ def conclude_blockers(corpus: Corpus, farm: str, triggers: list[TriggerEmission]
         reasons.append(
             f"{len(standing)} un-sublated undercutter(s) against this farm's atoms")
     if degeneration_forced(ledger):
-        reasons.append("degeneration ledger unclean: "
-                       "two consecutive novel-content-free patches")
+        reasons.append(_DEGENERATE)
     return reasons
-
-
-_EXHAUSTED = "round budget exhausted"
-_DEGENERATE = "degeneration ledger: two consecutive novel-content-free patches"
 
 
 def resolve_decision(*, scout_decision: FarmDecision, corpus: Corpus, farm: str,
@@ -55,6 +54,8 @@ def resolve_decision(*, scout_decision: FarmDecision, corpus: Corpus, farm: str,
                      final_round: bool) -> GateResult:
     if scout_decision in ("CONCEDE", "ELEVATE"):
         return GateResult(decision=scout_decision)
+    if degeneration_forced(ledger):
+        return GateResult(decision="ELEVATE", forced=True, reasons=[_DEGENERATE])
     if scout_decision == "CONCLUDE":
         reasons = conclude_blockers(corpus, farm, triggers, ledger)
         if not reasons:
@@ -63,8 +64,6 @@ def resolve_decision(*, scout_decision: FarmDecision, corpus: Corpus, farm: str,
             return GateResult(decision="ELEVATE", forced=True,
                               reasons=[*reasons, _EXHAUSTED])
         return GateResult(decision="CONTINUE", forced=True, reasons=reasons)
-    if degeneration_forced(ledger):
-        return GateResult(decision="ELEVATE", forced=True, reasons=[_DEGENERATE])
     if final_round:
         return GateResult(decision="ELEVATE", forced=True, reasons=[_EXHAUSTED])
     return GateResult(decision="CONTINUE")

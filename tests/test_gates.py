@@ -81,6 +81,15 @@ def test_degeneration_forces_elevate_on_continue():
     assert result.decision == "ELEVATE" and result.forced
 
 
+def test_degeneration_forces_elevate_even_on_conclude():
+    corpus = _farm_corpus(False)
+    result = resolve_decision(scout_decision="CONCLUDE", corpus=corpus, farm="A",
+                              triggers=[HIGH], ledger=[_entry(False), _entry(False)],
+                              final_round=False)
+    assert result.decision == "ELEVATE" and result.forced
+    assert any("novel-content-free" in r for r in result.reasons)
+
+
 def test_final_round_never_returns_continue():
     blocked = resolve_decision(scout_decision="CONCLUDE", corpus=_farm_corpus(False),
                                farm="A", triggers=[], ledger=[], final_round=True)
