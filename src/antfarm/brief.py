@@ -10,7 +10,7 @@ from antfarm.graph import build_graph, compute_centrality, compute_view, extract
 from antfarm.reduce import Corpus
 from antfarm.tripwires import standing_tripwires
 
-_PROBE_TYPES = ("claim", "evidence")
+_PROBE_TYPES = ("claim", "evidence", "hypothesis", "tension")
 
 
 def warm_brief(corpus: Corpus, question_id: str, runs_root: Path) -> dict:

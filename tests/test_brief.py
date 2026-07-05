@@ -65,13 +65,23 @@ def test_verification_queue_flags_late_singletons_first():
 
 
 def test_probe_flags_duplicate_and_novel(tmp_path):
-    corpus, view_claim, *_ = _seeded_corpus()
+    corpus, view_claim, _, dead = _seeded_corpus()
 
     def fake_embed(texts):
-        return [[1.0, 0.0] if "storage" in t.lower() else [0.0, 1.0] for t in texts]
+        def vec(t):
+            low = t.lower()
+            if "storage" in low:
+                return [1.0, 0.0, 0.0]
+            if "fusion" in low:
+                return [0.0, 1.0, 0.0]
+            return [0.0, 0.0, 1.0]
+        return [vec(t) for t in texts]
 
     dup = probe(corpus, fake_embed, "STORAGE capacity limits things.")
     assert dup["novel"] is False and dup["nearest"][0]["score"] == 1.0
+    # a candidate matching an existing HYPOTHESIS is not a hole either
+    hypo_dup = probe(corpus, fake_embed, "Fusion at grid scale lands soon.")
+    assert hypo_dup["novel"] is False and hypo_dup["nearest"][0]["id"] == dead.id
     novel = probe(corpus, fake_embed, "Nobody has considered permitting reform.")
     assert novel["novel"] is True
 
