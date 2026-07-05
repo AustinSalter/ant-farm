@@ -104,16 +104,19 @@ def entailment_clusters(texts: list[str], embed_fn: EmbedFn,
     return clusters
 
 
-def trigram_embed(texts: list[str]) -> list[list[float]]:
-    """Deterministic 32-dim character-trigram embedding. For tests and offline
-    smoke runs (ANTFARM_EMBED=trigram) - not a semantic model."""
+def hash_embed(texts: list[str]) -> list[list[float]]:
+    """Deterministic 256-dim hashed word unigram+bigram embedding. For tests and
+    offline smoke runs (ANTFARM_EMBED=hash) - not a semantic model. Word grams in
+    256 dims keep distinct sentences well below the 0.67 entailment threshold
+    (char trigrams did not: nearly all English pairs merged)."""
     out = []
     for text in texts:
-        vec = [0.0] * 32
-        low = text.lower()
-        for i in range(len(low) - 2):
-            tri = low[i:i + 3].encode()
-            vec[int.from_bytes(hashlib.sha256(tri).digest()[:2], "big") % 32] += 1.0
+        vec = [0.0] * 256
+        words = text.lower().split()
+        grams = words + [f"{a} {b}" for a, b in zip(words, words[1:], strict=False)]
+        for gram in grams:
+            digest = hashlib.sha256(gram.encode()).digest()
+            vec[int.from_bytes(digest[:2], "big") % 256] += 1.0
         out.append(vec)
     return out
 

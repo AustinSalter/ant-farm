@@ -64,14 +64,20 @@ def scout_fixture(round: int, decision: str, **overrides) -> dict:
     if round >= 2:
         base["sublation"] = [
             {"critique": CRITIQUE_TEXT, "disposition": "rebutted",
-             "response": REBUT_CRITIQUE}]
+             "response": REBUT_CRITIQUE},
+            {"critique": PREMORTEM_TEXT, "disposition": "rebutted",
+             "response": REBUT_PREMORTEM}]
         base["atoms"] = [{"type": "claim", "text": REBUT_CRITIQUE,
+                          "strength": None, "diagnosticity": None},
+                         {"type": "claim", "text": REBUT_PREMORTEM,
                           "strength": None, "diagnosticity": None}]
         base["edges"] = [{"src": REBUT_CRITIQUE, "dst": CRITIQUE_TEXT,
+                          "rel": "rebuts", "warrant": None},
+                         {"src": REBUT_PREMORTEM, "dst": PREMORTEM_TEXT,
                           "rel": "rebuts", "warrant": None}]
         base["falsification_triggers"] = [{"text": TRIGGER_TEXT, "severity": "high"}]
         base["ledger_entry"] = {"trigger": "round 1 critique",
-                                "change": "rebutted warrant probe",
+                                "change": "rebutted both challenges",
                                 "novel_content": True}
     return {**base, **overrides}
 
@@ -81,6 +87,6 @@ def critique_fixture() -> dict:
         "findings": [{"target_text": CLAIM_TEXT, "kind": "warrant_probe",
                       "classification": "undercutting", "severity": "high",
                       "text": CRITIQUE_TEXT}],
-        "premortem": "The hypothesis could be overturned by unforeseen market changes.",
-        "summary": "One HIGH warrant probe.",
+        "premortem": PREMORTEM_TEXT,
+        "summary": "One HIGH warrant probe; premortem names interconnection risk.",
     }

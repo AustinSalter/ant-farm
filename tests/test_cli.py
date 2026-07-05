@@ -17,7 +17,7 @@ QUESTION = "What limits US solar growth through 2030?"
 
 @pytest.fixture(autouse=True)
 def _offline_embeddings(monkeypatch):
-    monkeypatch.setenv("ANTFARM_EMBED", "trigram")
+    monkeypatch.setenv("ANTFARM_EMBED", "hash")
 
 
 @pytest.fixture()

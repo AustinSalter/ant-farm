@@ -16,7 +16,7 @@ from pydantic import TypeAdapter
 from antfarm import brief as brief_mod
 from antfarm import farm as farm_mod
 from antfarm.analysis import ach_winner, derive_e
-from antfarm.cluster import CachedEmbed, EmbeddingMatcher, EmbedFn, trigram_embed
+from antfarm.cluster import CachedEmbed, EmbeddingMatcher, EmbedFn, hash_embed
 from antfarm.counterfactual import persona_swap, regenerated_to_turns, swap_package
 from antfarm.emission import (
     AtomBatch,
@@ -57,8 +57,8 @@ def question_id_for(text: str) -> str:
 
 def get_embed(corpus_dir: Path) -> EmbedFn:
     cache = corpus_dir / "emb-cache.json"
-    if os.environ.get("ANTFARM_EMBED") == "trigram":
-        return CachedEmbed(cache, trigram_embed)
+    if os.environ.get("ANTFARM_EMBED") == "hash":
+        return CachedEmbed(cache, hash_embed)
     from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 
     ef = DefaultEmbeddingFunction()
