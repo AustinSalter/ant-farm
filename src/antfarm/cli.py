@@ -40,6 +40,7 @@ from antfarm.harvest import (
     stitch_harvest,
     verify_harvest,
 )
+from antfarm.materialize import materialize
 from antfarm.reduce import Corpus, reduce_events
 from antfarm.schema import Vantage, normalize_text
 from antfarm.stores import CorpusStore
@@ -351,6 +352,10 @@ def cmd_map_write(args: argparse.Namespace) -> dict:
     return {"path": str(path)}
 
 
+def cmd_materialize(args: argparse.Namespace) -> dict:
+    return materialize(args.corpus, args.run, get_embed(args.corpus), now_ts())
+
+
 HANDLERS: dict[str, Any] = {
     "schemas": cmd_schemas,
     "run-new": cmd_run_new,
@@ -373,6 +378,7 @@ HANDLERS: dict[str, Any] = {
     "persona-swap-prepare": cmd_persona_swap_prepare,
     "persona-swap-write": cmd_persona_swap_write,
     "map-write": cmd_map_write,
+    "materialize": cmd_materialize,
 }
 
 
@@ -431,6 +437,7 @@ def build_parser() -> argparse.ArgumentParser:
                                  "--farm": {"required": True},
                                  "--start-iteration": {"required": True, "type": int}})
     add("map-write")
+    add("materialize", **{"--run": {"required": True}})
     return parser
 
 
