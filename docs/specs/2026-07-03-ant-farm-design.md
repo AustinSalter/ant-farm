@@ -336,8 +336,26 @@ R/E/C as probabilities.
 
 ### 9.1 dialectic-plugin v2 (the advocate)
 
-dialectic-plugin v2 becomes ant-farm's first client. Changes:
+dialectic-plugin v2 becomes ant-farm's first client — and its second sensor. The seam
+is two-way: **seed, consume, compound** (amended 2026-07-05). A dialectic session is
+not a detached tool that reads the map; it is an instrument pass that enriches it.
+Changes:
 
+- **Two-way seam (added 2026-07-05):**
+  - *Seed* — a v2 session opens with a warm-start brief from the corpus: the view
+    neighborhood of its question (same brief machinery as farm warm-starts). Prior
+    basins, cruxes, and standing challenges are the session's starting terrain,
+    never re-derived.
+  - *Consume* — distill and forge as view consumers (below), unchanged.
+  - *Compound* — at session end, the session's atoms harvest into the event log as
+    a first-class vantage (`sensor: "model"`, advocate persona, session id as run).
+    Claims, evidence, rebuttals, qualifications map from the sublation loop's output
+    exactly as scout emissions do (the v1 marker vocabulary already maps: bridge →
+    edge, rebuttal → rebuts/undercuts, support + licence → supports + warrant).
+    Concessions land as status events with died-because records. Entailment merge
+    dedups against the well; a re-found claim increments sightings — every advocacy
+    session compounds the corpus instead of evaporating. Plan 4 implements this
+    harvest against plan 2's emission schema and CLI; no new corpus machinery.
 - **Deleted:** stop-hook loop (both implementations), dead `explorations`/`elevate_trigger`
   code, `serialize-trace.js` (schema-forced atoms make scraping obsolete), the broken
   `patterns/{domain}.md` references (files split for real), SKILL.md's contradictory
