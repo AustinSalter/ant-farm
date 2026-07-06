@@ -74,9 +74,11 @@ Corpus core (plan 1) is merged: the `antfarm` Python package — content-hash at
 schemas, append-only event log, deterministic reducer with entailment merge, graph
 queries, view gate, chroma stores, keel transcript export, counterfactuals, Obsidian
 render — with the full gate (tests, lint, types, real-embedding eval, end-to-end
-smoke) green in CI. The survey pipeline (plan 2) is in progress. The coverage
-certificate (plan 3) and the dialectic-plugin v2 consumer seam (plan 4) follow. The
-full design lives in
+smoke) green in CI. The survey pipeline (plan 2) is implemented: the `python -m antfarm`
+CLI, the seven survey agents, and the `workflows/survey.js` orchestrator. Run a survey
+via the `/survey` skill (requires Claude Code >= 2.1.154 with dynamic workflows). The
+coverage certificate (plan 3) and the dialectic-plugin v2 consumer seam (plan 4) are
+next. The full design lives in
 [`docs/specs/2026-07-03-ant-farm-design.md`](docs/specs/2026-07-03-ant-farm-design.md).
 
 ## The novel contribution
