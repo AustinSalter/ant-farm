@@ -1,6 +1,7 @@
 import hashlib
 import json
 import math
+import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -128,8 +129,14 @@ class CachedEmbed:
     def __init__(self, path: Path, base: EmbedFn):
         self.path = path
         self.base = base
-        self._cache: dict[str, list[float]] = (
-            json.loads(path.read_text(encoding="utf-8")) if path.exists() else {})
+        self._cache: dict[str, list[float]] = {}
+        if path.exists():
+            try:
+                self._cache = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                # a concurrent writer (another farm CLI process) tore the file;
+                # a lost cache just means we re-embed - not fatal.
+                self._cache = {}
 
     @staticmethod
     def _key(text: str) -> str:
@@ -141,5 +148,11 @@ class CachedEmbed:
             for text, vec in zip(missing, self.base(missing), strict=True):
                 self._cache[self._key(text)] = vec
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps(self._cache), encoding="utf-8")
+            # atomic write: concurrent farm CLI processes share this cache file;
+            # a torn read from a half-written file would crash the whole workflow
+            # run, so serialize to a sibling temp file and rename into place.
+            # Lost updates between racing writers are acceptable; torn reads are not.
+            tmp = self.path.with_suffix(f".json.tmp.{os.getpid()}")
+            tmp.write_text(json.dumps(self._cache), encoding="utf-8")
+            os.replace(tmp, self.path)
         return [self._cache[self._key(t)] for t in texts]

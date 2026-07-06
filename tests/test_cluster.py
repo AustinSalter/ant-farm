@@ -155,3 +155,22 @@ def test_hash_embed_deterministic_discriminative_and_cached(tmp_path):
     # a fresh instance reads the file, no base calls
     reloaded = CachedEmbed(tmp_path / "cache.json", counting)
     assert reloaded(["one text"]) == [first[0]] and len(calls) == 1
+
+
+def test_cached_embed_recovers_from_torn_cache_and_writes_atomically(tmp_path):
+    import json
+
+    from antfarm.cluster import CachedEmbed, hash_embed
+
+    path = tmp_path / "cache.json"
+    # simulate a reader catching another farm CLI process mid-write
+    path.write_text("{tor")
+
+    cached = CachedEmbed(path, hash_embed)
+    result = cached(["storage lags panels"])
+    assert result == hash_embed(["storage lags panels"])
+
+    # the repair (and any subsequent normal write) leaves valid JSON behind,
+    # with no leftover .tmp files in the cache directory
+    assert json.loads(path.read_text(encoding="utf-8"))
+    assert list(tmp_path.glob("*.tmp.*")) == []
