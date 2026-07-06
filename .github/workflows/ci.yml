@@ -30,6 +30,9 @@ jobs:
       - name: Type check
         run: uv run mypy src
 
+      - name: Workflow script syntax
+        run: node scripts/check_workflow.mjs
+
       - name: Tests
         run: uv run pytest -v
 
