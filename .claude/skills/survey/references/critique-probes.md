@@ -10,9 +10,9 @@ Run all five against the framed hypothesis:
 | Probe | Question | Failure mode |
 |-------|----------|--------------|
 | Contingency | Does this depend on something that could change? | Temporary mistaken for structural |
-| Mechanism | Is the causal path specified? | Assertion without causation |
-| Anomaly | Is counter-evidence addressed? | Ignored disconfirmation |
-| Model dependency | Do the model's assumptions still hold? | Outdated model |
+| Mechanism | Is the causal path missing? | Assertion without causation |
+| Anomaly | Does counter-evidence go unaddressed? | Ignored disconfirmation |
+| Model dependency | Have the model's assumptions stopped holding? | Outdated model |
 | Implementation | Does this assume rational response? | Perverse or irrational response |
 
 Each probe that fails becomes a finding. A probe that passes is not a finding;
@@ -55,6 +55,13 @@ line is low even though it is clearly wrong; a subtle warrant gap in the main
 inference is high even though the sentence reads well. Severity inflation
 burns the farm's rounds on trivia; deflation lets a dead thesis conclude.
 
+## Retrieval
+
+Retrieve from the well collection (`uv run python -m antfarm query --collection
+well --text "..."`) — the well includes contested and buried material the view
+excludes. A buried rebuttal the trace never answered is a finding; the farm
+does not get to outlive an unanswered attack by forgetting it.
+
 ## Fact-Check with Web Search
 
 Verify or challenge the trace's key claims. Budget 2–3 searches per critique.
@@ -69,16 +76,11 @@ For any web-sourced finding, state the source and date in the finding's text —
 the finding becomes a corpus atom and must stand alone. When new evidence
 changes a probe outcome, report the original result and the revised result.
 
-Retrieve from the WELL collection (`uv run python -m antfarm query --collection
-well --text "..."`) — the well includes contested and buried material the view
-excludes. A buried rebuttal the trace never answered is a finding; the farm
-does not get to outlive an unanswered attack by forgetting it.
-
 ## Premortem
 
 "It is 12 months from now and the thesis failed — write the history." Write
-the failure history first, in your head or in scratch; then distill it into
-ONE self-contained premortem sentence naming the mechanism of failure. That
+the failure history first, in your reasoning or a scratch file; then distill
+it into one self-contained premortem sentence naming the mechanism of failure. That
 sentence becomes a named risk the farm must answer or rebut. "The thesis might
 be wrong" is not a premortem; "Enterprise buyers standardized on the
 incumbent's bundled offering, so integration quality never got a purchase
@@ -93,9 +95,10 @@ classified rebutting, severity graded by how load-bearing the broad version is.
 
 ## Evidence Challenge
 
-For each piece of evidence the trace counts as support, ask: is this evidence
-also consistent with the rival hypotheses? Evidence consistent with every
-rival is non-diagnostic — it supports nothing, whatever its strength. The
+For each piece of evidence the trace counts as support, ask: can you name a
+rival hypothesis this evidence fits equally well? Name the rival in the
+finding. Evidence consistent with every rival is non-diagnostic — it supports
+nothing, whatever its strength. The
 trace claiming it as support is a finding, classified undercutting: the
 evidence is real, the supports inference is unlicensed.
 
@@ -117,8 +120,9 @@ Trace hypothesis: "Stripe has better documentation and easier integration."
   and competed on price, because documentation quality was never a defensible
   moat." One sentence, self-contained, names the mechanism.
 
-## Adaptation notes
+## Adaptation notes (maintainer record — not instructions)
 
+<!--
 - The severity scale and the rebutting/undercutting classification are v2
   additions required by the CritiqueReport schema; v1 findings were unclassed
   prose. The meta-probes, fact-check protocol, and search budget port intact.
@@ -129,3 +133,5 @@ Trace hypothesis: "Stripe has better documentation and easier integration."
   findings and never decides for the farm.
 - v1's `[WEB]` rationale tag and YAML output formats are replaced by the
   schema-forced CritiqueReport emission; the stop-hook section is stripped.
+-->
+

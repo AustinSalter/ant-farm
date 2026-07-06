@@ -28,7 +28,7 @@ Write it for that reader.
 3. **Aligned-incentive primary sources need a non-aligned corroborator** before
    their load-bearing claims count as strong support.
 4. **Validate each insight against its evidence.** A claim whose supporting
-   evidence atoms sit at strength 1–2 (general knowledge, speculation) is an
+   evidence atoms sit at strength 1–2 (general knowledge, speculation) marks an
    evidence gap — name it as a live risk.
 5. **Rebuttals and undercuts weaken what they hit.** A supports edge whose
    warrant carries a standing undercut is not your strongest support.
@@ -44,11 +44,12 @@ system from the corpus — never self-report it.
 ### R — Defensibility: Can this survive scrutiny?
 
 R is a gate, not a score. A broken warrant in the chain means the conclusion
-does not follow, regardless of evidence volume. High evidence cannot compensate
-for low R. Fix reasoning before gathering more evidence.
+does not follow, regardless of evidence volume. No amount of evidence
+compensates for low R. Fix reasoning before gathering more evidence.
 
 - **high** — every load-bearing inference has a stated warrant with no standing
-  undercut; the critique found nothing this round that changed the thesis.
+  undercut, and the thesis survived this round's critique unchanged. A thesis
+  revised this round is untested: cap it at med.
 - **med** — the chain holds but at least one warrant is untested or one
   material counter is answered only partially.
 - **low** — a load-bearing warrant is broken or a material counter stands
@@ -57,13 +58,12 @@ for low R. Fix reasoning before gathering more evidence.
 ### C — Domain Determinacy: What certainty does the domain permit?
 
 C measures how much certainty the domain allows, independent of your argument.
-C reflects outcome variance, not argument quality — a brilliant argument about
-an unpredictable domain still gets low C, and sound reasoning does not make
-geopolitics predictable, so C must not track R.
+C reflects outcome variance, not argument quality: a brilliant argument about
+geopolitics still gets low C. C must not track R.
 
 C is discovered, not optimized. If your C band drifts upward across rounds
-without new evidence about the domain itself, that is motivated reasoning.
-More rounds do not reduce ontological uncertainty.
+without new evidence about the domain itself, that is motivated reasoning —
+keep the earlier band. More rounds do not change what the domain permits.
 
 | Band | Domain profile | Example |
 |------|---------------|---------|
@@ -73,15 +73,16 @@ More rounds do not reduce ontological uncertainty.
 
 Self-check: high C on a geopolitical, multi-stakeholder, or 10+ year question
 requires an explicit justification of why this domain is more predictable than
-it appears. The default for wicked problems is low.
+it appears. The default for such questions is low.
 
-C drives how the claim is held downstream (act on it / hold provisionally with
-a release condition / best available frame), never whether the farm stops.
+C drives how the claim is held downstream (high: act on it; med: hold
+provisionally with a release condition; low: best available frame), never
+whether the farm stops.
 
 ## Saturation: Ask, Do Not Score
 
 E is computed by the system, but the questions behind it shape your decision
-input. Answer them into the live-risks clause:
+input. Put the answers in the live-risks clause:
 
 - What is the strongest piece of evidence I have not looked for?
 - If I found it, how much would it change the thesis?
@@ -114,8 +115,9 @@ confidence_r: med (the lock-in warrant is coherent but its key evidence is
 still strength-3 inference). confidence_c: med (established market, observable
 variables, genuine strategic unknowns).
 
-## Adaptation notes
+## Adaptation notes (maintainer record — not instructions)
 
+<!--
 - v1's numeric 0.0–1.0 confidence scales, per-cycle update formulas
   (R/E deltas, caps), and the R/E/C composite are deleted per spec §9.1;
   R and C survive as ordinal bands with the same underlying questions.
@@ -128,3 +130,5 @@ variables, genuine strategic unknowns).
 - v1's decision table and termination signals move to
   `sublation-and-decision.md`; v1's YAML output format is replaced by the
   schema-forced ScoutRoundOutput emission; the stop-hook section is stripped.
+-->
+

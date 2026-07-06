@@ -29,9 +29,9 @@ Before deciding, answer three questions about your hypothesis under critique:
    claim narrows.
 3. **What must any revision retain?** — the non-negotiables.
 
-If you cannot complete this, you have not understood your own hypothesis.
-Return to expansion. Carry forward what the critique did NOT kill — sublation
-preserves, it never wipes the slate.
+If you cannot complete this, you have not understood your own hypothesis —
+decide CONTINUE and target expansion at what you cannot answer. Carry forward
+what the critique left standing — sublation preserves.
 
 ## Amputation Check (Run Before Deciding)
 
@@ -39,20 +39,21 @@ The failure mode: counters are acknowledged but change nothing. For each
 standing rebut or undercut against your thesis, ask: did this change the
 thesis, or was it acknowledged and set aside?
 
-A material counter acknowledged without changing the thesis is an amputation —
-the thesis is absorbing hits without adapting, which means it sits at the
-wrong altitude. One or more amputations → the decision is ELEVATE, not
-CONCLUDE. No zombie claims: a claim the critique killed gets excised, not
-carried forward beside its refutation.
+A med- or high-severity counter acknowledged without changing the thesis is an
+amputation — the thesis is absorbing hits without adapting, which means it
+sits at the wrong altitude. One or more amputations bar CONCLUDE. Take ELEVATE
+if the evidence gate passes; otherwise CONTINUE, targeting the data that would
+make the right altitude visible. No zombie claims: a claim the critique killed
+gets excised, not carried forward beside its refutation.
 
 ## Ledger Honesty
 
 Fill ledger_entry every round. novel_content=false when your patch added
 nothing new — a restated thesis, a re-worded rebuttal, a defensive
-qualification that concedes nothing. Two consecutive novel-content-free
-patches force ELEVATE or CONCEDE; the gate script checks the ledger, so a
-flattering entry only delays the same verdict by one round (Lakatos: a
-degenerating program predicts nothing new).
+qualification that concedes nothing. Two consecutive patches with
+novel_content=false force ELEVATE or CONCEDE. The gate script checks the
+ledger; a flattering entry delays the same verdict by one round. Lakatos: a
+degenerating program predicts nothing new.
 
 ## Evidence Gate for ELEVATE
 
@@ -67,16 +68,16 @@ state exactly what data would reveal the right altitude.
 | Decision | When | Required output |
 |----------|------|-----------------|
 | CONTINUE | Evidence gaps exist and are addressable with data | The specific data that resolves them, named in the compressed state |
-| CONCLUDE | Thesis robust at the right altitude, no amputated counters | The bet + a HIGH falsification trigger |
+| CONCLUDE | Thesis robust at the right altitude, no amputated counters | The bet + a high-severity falsification trigger |
 | ELEVATE | Wrong altitude or amputated counters, and the elevated hypothesis is already visible in the evidence | The elevated hypothesis + what it preserves + what it resolves |
 | CONCEDE | The thesis lost: a rival explains the evidence better, or the core claim is refuted and no elevation preserves anything worth keeping | died_because — the specific finding or evidence that killed it |
 
 **CONCLUDE only when you can state:**
 - The bet: "X over Y because mechanism Z."
-- Falsification: a HIGH-severity trigger on record — a specific, testable
+- Falsification: a high-severity trigger on record — a specific, testable
   condition that would flip the thesis. Test it: would a false thesis survive
   this trigger? If yes, the trigger is soft and the gate will bounce you.
-- No standing undercutters against your atoms, and a clean ledger. The script
+- No standing undercuts against your atoms, and a clean ledger. The script
   enforces all three; claim only what you can defend.
 
 **ELEVATE requires:**
@@ -111,8 +112,9 @@ adoption evidence cannot license a durable-advantage conclusion.
   as the key lever. Resolves: why PayPal's founders would invest against their
   own company — they see an infrastructure play, not product competition.
 
-## Adaptation notes
+## Adaptation notes (maintainer record — not instructions)
 
+<!--
 - CONCEDE is new in v2: v1 ran a single advocate with no rival farms, so a
   thesis could only continue, conclude, or elevate. Parallel farms make honest
   death a first-class outcome with a died_because record.
@@ -126,3 +128,5 @@ adoption evidence cannot license a durable-advantage conclusion.
 - v1's amputation_check YAML block and decision output formats are replaced by
   the schema-forced ScoutRoundOutput emission; the stop-hook section and
   thesis-history.md mechanics are stripped.
+-->
+

@@ -1,7 +1,7 @@
 # Expansion Pass
 
 Two jobs: (1) select the right frame, (2) gather evidence within it. Emit atoms
-and edges as you find things — do not save them up for the end.
+and edges the moment you find them.
 
 ## Phase 1: Frame Selection (Do First)
 
@@ -35,14 +35,15 @@ Step 3: [how that produces the claimed outcome]
 
 If you cannot list 3+ concrete steps, the hypothesis is TOO ABSTRACT even if it
 sounds specific. "Vertically integrate" sounds like a strategy but skips the
-causal chain: acquire supplier → ??? → lower costs. The missing middle is the
-altitude problem. Note the break point in your compressed state.
+causal chain: acquire supplier → ??? → lower costs. The missing step is the
+altitude problem. Note the missing step in your compressed state.
 
 ## Phase 2: Guided Search
 
-Gather evidence within the selected frame. Retrieval is the view collection
+Gather evidence within the selected frame. Retrieve from the view collection
 only: `uv run python -m antfarm query --collection view --text "..."`. Then
-search the open web on your persona's blind spots.
+search the open web for what your persona would not think to look for: sources
+arguing from the opposing frame.
 
 **Search targets, in priority order:**
 
@@ -69,20 +70,23 @@ below turns on one anomaly pursued this way.
 | Finding that exists only by combining sources A and B | claim atom + bridges edges to both — present in neither alone |
 | Claim that presupposes another | depends_on edge |
 
-Every atom text self-contained: no pronouns, no "this shows", readable with
-zero context. Edges to existing material quote the target's text exactly.
+Write every atom self-contained: no pronouns, no "this shows"; a reader with
+zero context understands it. Edges to existing material quote the target's
+text exactly.
 
 ## Reading Sources
 
-Read in flow, not in extraction mode. As you read, be alert to four things:
+Read each source's whole argument; do not skim for quotable fragments. As you
+read, be alert to four things:
 
 **Position.** Where does this source sit? Primary (original assertion, original
 data, first to say it), downstream (restating someone else's claim), critique
 (arguing against a claim you've seen), synthesis (combining prior claims into a
 new framing). Five downstream sources are one source. One primary against four
-downstream is not "outnumbered." Position changes the math — record it in the
-evidence atom's strength: observed data with citation is 5, credible report 4,
-pattern inference 3, general knowledge 2, speculation 1.
+downstream is not "outnumbered." Record position in the strength rating:
+observed data with citation 5, credible report 4, pattern inference 3, general
+knowledge 2, speculation 1 — and a downstream restatement takes at most 3,
+whatever its original scores.
 
 **Load-bearing parts.** What does the argument actually rest on? Often the
 buried qualifier, the conceded footnote, the aside that constrains the headline
@@ -97,8 +101,9 @@ that survives an opposing-incentive source is stronger.
 **Stitch points.** When this source connects to one you've already read —
 bridges a gap, resolves a tension, sharpens a contradiction — emit the bridges
 edge as it happens. The non-obvious findings live in the joins, not in any
-single source. If your atoms are converging on the obvious and you have emitted
-no bridges edges, you read sources in parallel but did not read them together.
+single source. If you have emitted no bridges edges by the last source, you
+read sources in parallel but did not read them together — reread your atoms
+for joins before the pass ends.
 
 **Reading heuristics:**
 - Read in the order fetched. Earlier sources frame later ones.
@@ -109,12 +114,12 @@ no bridges edges, you read sources in parallel but did not read them together.
 - Ground evidence atoms in their source: name the source and date for web findings; say so when a fact comes from prior knowledge only.
 - Note what you searched for but could not find — an absence is information.
 
-## Do NOT
+## Do not
 
 - Conclude or decide (the decision pass does that)
 - Search outside the frame (reframe first if the frame is wrong)
-- Ignore counter-evidence (seek it — target 2 of 4)
-- Skip frame selection (it is the whole point)
+- Ignore counter-evidence (seek it — search target 2, Challenging evidence)
+- Skip frame selection (everything downstream inherits the frame)
 
 ## Worked Example
 
@@ -133,8 +138,9 @@ switching costs → infrastructure moat"; domain: infrastructure.
 - claim (bridges the adoption evidence and the investor anomaly): "Stripe's moat is infrastructure lock-in after integration — merchant of record, compliance, billing logic — not documentation quality; documentation is the wedge, not the moat."
 - Open threads for the next round, carried in the compressed state: actual switching costs post-integration; churn rates for integrated customers.
 
-## Adaptation notes
+## Adaptation notes (maintainer record — not instructions)
 
+<!--
 - v1 marker vocabulary maps to edges per MARKERS.md: `[BRIDGE: A→B]` →
   bridges edge; `[COUNTER]`/`[CONTRADICTS: A]` → rebuts or undercuts edge;
   `[QUALIFIES: A]` → qualifies edge; `[TENSION]` → tension atom; `[EVIDENCE]` →
@@ -149,3 +155,5 @@ switching costs → infrastructure moat"; domain: infrastructure.
   real work.
 - v1's YAML output format is replaced by the schema-forced ScoutRoundOutput
   emission; no output-format section is ported.
+-->
+
