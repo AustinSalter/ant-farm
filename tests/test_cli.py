@@ -2,8 +2,10 @@ import json
 
 import pytest
 
+from antfarm import farm as farm_mod
 from antfarm.cli import main
 from antfarm.emission import export_schemas
+from antfarm.schema import atom_id
 from helpers import (
     CLAIM_TEXT,
     HYPOTHESIS_TEXT,
@@ -94,6 +96,35 @@ def test_full_farm_round_trip_gates_conclude(corpus_dir):
         {"atom_id": claim_id, "verified": True,
          "evidence": "CAISO reports corroborate.", "source": "caiso.com"}])
     assert verified["verified"] == [claim_id]
+
+
+def test_farm_init_canonicalizes_hypothesis_id_from_its_own_harvest(corpus_dir):
+    run = run_cli(corpus_dir, "run-new", "--question", QUESTION)["run"]
+    run_cli(corpus_dir, "harvest-framing", "--run", run, payload=framing_fixture())
+    # saturate mode passes a claim id (a gap-atom's id), not the hypothesis id
+    wrong_id = "c-deadbeefcafe"
+    result = run_cli(corpus_dir, "farm-init", "--run", run, "--farm", "Z",
+                     "--hypothesis-id", wrong_id, "--hypothesis-text", HYPOTHESIS_TEXT,
+                     "--persona", "a municipal procurement officer",
+                     "--family", "opus")
+    canonical = atom_id("hypothesis", HYPOTHESIS_TEXT)
+    assert result["hypothesis_id"] == canonical
+    assert result["hypothesis_id"].startswith("h-")
+    assert result["hypothesis_id"] != wrong_id
+
+    d = farm_mod.farm_dir(corpus_dir, run, "Z")
+    meta = farm_mod.read_meta(d)
+    assert meta.hypothesis_id == canonical
+
+
+def test_farm_init_rejects_non_self_contained_hypothesis_text(corpus_dir):
+    run = run_cli(corpus_dir, "run-new", "--question", QUESTION)["run"]
+    run_cli(corpus_dir, "harvest-framing", "--run", run, payload=framing_fixture())
+    with pytest.raises(SystemExit):
+        run_cli(corpus_dir, "farm-init", "--run", run, "--farm", "Z",
+                "--hypothesis-id", "c-deadbeefcafe",
+                "--hypothesis-text", "This proves the thesis.",
+                "--persona", "a municipal procurement officer", "--family", "opus")
 
 
 def test_probe_and_query_before_first_materialize(corpus_dir):

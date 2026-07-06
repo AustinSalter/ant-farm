@@ -133,22 +133,34 @@ def cmd_brief(args: argparse.Namespace) -> dict:
 
 def cmd_farm_init(args: argparse.Namespace) -> dict:
     question = stored_question(args.corpus)
-    meta = farm_mod.FarmMeta(
-        farm=args.farm, hypothesis_id=args.hypothesis_id,
-        hypothesis_text=args.hypothesis_text, persona=args.persona,
-        family=args.family, question_id=question["question_id"],
-        question_text=question["text"])
-    farm_mod.init_farm(args.corpus, args.run, args.farm, meta)
     # re-observe the hypothesis under the farm's vantage so critiques against it
-    # (incl. the premortem) block THIS farm's CONCLUDE gate until sublated
+    # (incl. the premortem) block THIS farm's CONCLUDE gate until sublated. This
+    # harvest is also the source of truth for the farm's hypothesis_id: saturate
+    # mode passes a claim id (holeAtoms.atom_ids[i]) as --hypothesis-id, which is
+    # NOT the id everything downstream (undercuts edges, CONCEDE status events,
+    # tripwire depends_on) keys on - that's the hypothesis-typed node created
+    # right here from --hypothesis-text. --hypothesis-id is kept as an advisory
+    # flag only; the canonical id always comes from this harvest.
     vantage = _vantage(args.run, args.farm, args.family, args.persona, round=1)
     batch = AtomBatch.model_validate(
         {"atoms": [{"type": "hypothesis", "text": args.hypothesis_text}]})
     result = batch_harvest(batch, vantage=vantage, corpus=Corpus(),
                            question_id=question["question_id"], ts=now_ts())
+    if not result.atom_ids:
+        raise SystemExit(
+            "farm-init: hypothesis text was rejected as non-self-contained - "
+            f"a farm cannot start without a valid hypothesis node: "
+            f"{args.hypothesis_text!r}")
+    hypothesis_id = result.atom_ids[0]
+    meta = farm_mod.FarmMeta(
+        farm=args.farm, hypothesis_id=hypothesis_id,
+        hypothesis_text=args.hypothesis_text, persona=args.persona,
+        family=args.family, question_id=question["question_id"],
+        question_text=question["text"])
+    farm_mod.init_farm(args.corpus, args.run, args.farm, meta)
     append_events(args.corpus / "runs" / args.run, f"p1-farm{args.farm}-init",
                   result.events)
-    return {"farm": args.farm, "hypothesis_id": args.hypothesis_id}
+    return {"farm": args.farm, "hypothesis_id": hypothesis_id}
 
 
 def cmd_harvest_framing(args: argparse.Namespace) -> dict:
