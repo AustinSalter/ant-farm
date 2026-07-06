@@ -5,8 +5,15 @@ from pathlib import Path
 
 from antfarm.cluster import EmbeddingMatcher, EmbedFn
 from antfarm.events import append_events, read_events
-from antfarm.farm import read_ledger, read_meta, read_outcome, read_triggers, read_turns
-from antfarm.gates import degeneration_forced
+from antfarm.farm import (
+    list_farms,
+    read_ledger,
+    read_meta,
+    read_outcome,
+    read_triggers,
+    read_turns,
+)
+from antfarm.gates import degeneration_forced, farm_node_ids
 from antfarm.graph import build_graph, compute_centrality, compute_view
 from antfarm.reduce import Corpus, reduce_events
 from antfarm.render import render_obsidian
@@ -16,21 +23,18 @@ from antfarm.transcript import Outcome, VerificationStats, write_transcript
 from antfarm.tripwires import register_tripwires
 
 
-def _farm_stats(corpus: Corpus, farm: str) -> VerificationStats:
-    emitted = [n for n in corpus.nodes.values()
-               if any(v.farm == farm for v in n.vantages)]
+def _farm_stats(corpus: Corpus, farm: str, run: str) -> VerificationStats:
+    emitted = [corpus.nodes[nid] for nid in farm_node_ids(corpus, farm, run)]
     return VerificationStats(atoms_emitted=len(emitted),
                              atoms_verified=sum(1 for n in emitted if n.verified))
 
 
 def materialize(corpus_dir: Path, run: str, embed: EmbedFn, ts: str) -> dict:
     runs_root = corpus_dir / "runs"
-    farms_root = corpus_dir / "farms" / run
-    farm_dirs = (sorted(d for d in farms_root.iterdir() if (d / "meta.json").exists())
-                 if farms_root.exists() else [])
+    farm_dirs = list_farms(corpus_dir, run)
 
     # 1. register this run's HIGH-severity falsification triggers as tripwires
-    corpus = reduce_events(read_events(runs_root), matcher=EmbeddingMatcher(embed))
+    events = read_events(runs_root)
     trip_events: list[dict] = []
     for d in farm_dirs:
         meta = read_meta(d)
@@ -41,7 +45,10 @@ def materialize(corpus_dir: Path, run: str, embed: EmbedFn, ts: str) -> dict:
             question_id=meta.question_id, ts=ts))
     if trip_events:
         append_events(runs_root / run, "p7-materialize", trip_events)
-        corpus = reduce_events(read_events(runs_root), matcher=EmbeddingMatcher(embed))
+    # one reduce over events-already-read plus the fresh tripwire events: the
+    # appended p7-materialize file sorts last in this run, so folding in memory
+    # matches the on-disk replay order without a second full read.
+    corpus = reduce_events(events + trip_events, matcher=EmbeddingMatcher(embed))
 
     # 2. view gate, stores, render
     graph = build_graph(corpus)
@@ -63,7 +70,7 @@ def materialize(corpus_dir: Path, run: str, embed: EmbedFn, ts: str) -> dict:
                    and hypothesis is not None and hypothesis.status != "live")
         outcome = Outcome(decision=stored["decision"], ledger=ledger,
                           ledger_clean=not degeneration_forced(ledger),
-                          verification=_farm_stats(corpus, meta.farm),
+                          verification=_farm_stats(corpus, meta.farm, run),
                           refuted=refuted, died_because=stored.get("died_because"))
         last_round = max((t.iteration for t in turns), default=1)
         vantage = Vantage(run=run, farm=meta.farm, family=meta.family,

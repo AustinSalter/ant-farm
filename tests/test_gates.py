@@ -33,13 +33,29 @@ def test_degeneration_two_consecutive_content_free_patches():
 
 def test_farm_node_ids_uses_any_sighting_vantage():
     corpus = _farm_corpus(with_undercutter=False)
-    assert farm_node_ids(corpus, "A") == set(corpus.nodes)
-    assert farm_node_ids(corpus, "B") == set()
+    assert farm_node_ids(corpus, "A", "r1") == set(corpus.nodes)
+    assert farm_node_ids(corpus, "B", "r1") == set()
+
+
+def test_farm_node_ids_scoped_to_run():
+    # farm keys are reused every run: run r2's farm A must not inherit run r1's
+    # farm A nodes, or a stale undercutter would block its CONCLUDE forever
+    corpus = _farm_corpus(with_undercutter=False)
+    assert farm_node_ids(corpus, "A", "r2") == set()
+
+
+def test_stale_undercutter_from_prior_run_does_not_block_conclude():
+    corpus = _farm_corpus(with_undercutter=True)  # r1 farm A left a standing attack
+    result = resolve_decision(scout_decision="CONCLUDE", corpus=corpus,
+                              farm="A", run="r2",
+                              triggers=[HIGH], ledger=[_entry(True)],
+                              final_round=False, critiques=1)
+    assert result.decision == "CONCLUDE" and not result.forced
 
 
 def test_conclude_blocked_without_high_trigger():
     result = resolve_decision(scout_decision="CONCLUDE",
-                              corpus=_farm_corpus(False), farm="A",
+                              corpus=_farm_corpus(False), farm="A", run="r1",
                               triggers=[LOW], ledger=[], final_round=False)
     assert result.decision == "CONTINUE" and result.forced
     assert any("HIGH-severity" in r for r in result.reasons)
@@ -47,7 +63,7 @@ def test_conclude_blocked_without_high_trigger():
 
 def test_conclude_blocked_by_unsublated_undercutter():
     result = resolve_decision(scout_decision="CONCLUDE",
-                              corpus=_farm_corpus(True), farm="A",
+                              corpus=_farm_corpus(True), farm="A", run="r1",
                               triggers=[HIGH], ledger=[], final_round=False)
     assert result.decision == "CONTINUE"
     assert any("undercutter" in r for r in result.reasons)
@@ -57,7 +73,7 @@ def test_conclude_blocked_without_critique():
     # HIGH trigger, clean ledger, no undercutters - the only thing missing is a
     # blind critique on record, e.g. a round-1 scout proposing CONCLUDE outright.
     result = resolve_decision(scout_decision="CONCLUDE", corpus=_farm_corpus(False),
-                              farm="A", triggers=[HIGH], ledger=[], final_round=False,
+                              farm="A", run="r1", triggers=[HIGH], ledger=[], final_round=False,
                               critiques=0)
     assert result.decision == "CONTINUE" and result.forced
     assert any("blind critique" in r for r in result.reasons)
@@ -71,7 +87,7 @@ def test_conclude_passes_when_gates_clear():
     attack_id = next(nid for nid, n in corpus.nodes.items()
                      if n.text.startswith("Storage statistics"))
     corpus.edges.append(make_edge(answer.id, attack_id, "rebuts"))
-    result = resolve_decision(scout_decision="CONCLUDE", corpus=corpus, farm="A",
+    result = resolve_decision(scout_decision="CONCLUDE", corpus=corpus, farm="A", run="r1",
                               triggers=[HIGH, LOW], ledger=[_entry(True)],
                               final_round=False, critiques=1)
     assert result.decision == "CONCLUDE" and not result.forced
@@ -79,13 +95,13 @@ def test_conclude_passes_when_gates_clear():
 
 def test_concede_and_elevate_pass_through():
     for decision in ("CONCEDE", "ELEVATE"):
-        result = resolve_decision(scout_decision=decision, corpus=Corpus(), farm="A",
+        result = resolve_decision(scout_decision=decision, corpus=Corpus(), farm="A", run="r1",
                                   triggers=[], ledger=[], final_round=False)
         assert result.decision == decision and not result.forced
 
 
 def test_degeneration_forces_elevate_on_continue():
-    result = resolve_decision(scout_decision="CONTINUE", corpus=Corpus(), farm="A",
+    result = resolve_decision(scout_decision="CONTINUE", corpus=Corpus(), farm="A", run="r1",
                               triggers=[], ledger=[_entry(False), _entry(False)],
                               final_round=False)
     assert result.decision == "ELEVATE" and result.forced
@@ -93,7 +109,7 @@ def test_degeneration_forces_elevate_on_continue():
 
 def test_degeneration_forces_elevate_even_on_conclude():
     corpus = _farm_corpus(False)
-    result = resolve_decision(scout_decision="CONCLUDE", corpus=corpus, farm="A",
+    result = resolve_decision(scout_decision="CONCLUDE", corpus=corpus, farm="A", run="r1",
                               triggers=[HIGH], ledger=[_entry(False), _entry(False)],
                               final_round=False)
     assert result.decision == "ELEVATE" and result.forced
@@ -102,9 +118,9 @@ def test_degeneration_forces_elevate_even_on_conclude():
 
 def test_final_round_never_returns_continue():
     blocked = resolve_decision(scout_decision="CONCLUDE", corpus=_farm_corpus(False),
-                               farm="A", triggers=[], ledger=[], final_round=True)
+                               farm="A", run="r1", triggers=[], ledger=[], final_round=True)
     assert blocked.decision == "ELEVATE"
     assert any("round budget" in r for r in blocked.reasons)
-    idle = resolve_decision(scout_decision="CONTINUE", corpus=Corpus(), farm="A",
+    idle = resolve_decision(scout_decision="CONTINUE", corpus=Corpus(), farm="A", run="r1",
                             triggers=[], ledger=[], final_round=True)
     assert idle.decision == "ELEVATE" and idle.forced

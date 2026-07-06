@@ -46,10 +46,12 @@ class CorpusStore:
     def persistent(cls, persist_dir: Path, embed_fn: EmbedFn) -> "CorpusStore":
         return cls(chromadb.PersistentClient(path=str(persist_dir)), embed_fn=embed_fn)
 
-    def _fresh_collection(self, name: str) -> chromadb.Collection:
+    def has_collection(self, name: str) -> bool:
         # list_collections returns Collection objects or names depending on version
-        existing = {getattr(c, "name", c) for c in self.client.list_collections()}
-        if name in existing:
+        return name in {getattr(c, "name", c) for c in self.client.list_collections()}
+
+    def _fresh_collection(self, name: str) -> chromadb.Collection:
+        if self.has_collection(name):
             self.client.delete_collection(name)
         # embedding_function=None: omitting it silently attaches chroma's default
         # ONNX EmbeddingFunction; embeddings are always passed explicitly here.

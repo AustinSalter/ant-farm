@@ -8,6 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from antfarm.emission import CritiqueReport, TriggerEmission
+from antfarm.events import append_events
 from antfarm.transcript import LedgerEntry, Turn
 
 
@@ -25,6 +26,14 @@ def farm_dir(corpus_dir: Path, run: str, farm: str) -> Path:
     return corpus_dir / "farms" / run / farm
 
 
+def list_farms(corpus_dir: Path, run: str) -> list[Path]:
+    """Every initialized farm directory for a run (meta.json is the marker)."""
+    root = corpus_dir / "farms" / run
+    if not root.exists():
+        return []
+    return sorted(d for d in root.iterdir() if (d / "meta.json").exists())
+
+
 def init_farm(corpus_dir: Path, run: str, farm: str, meta: FarmMeta) -> Path:
     d = farm_dir(corpus_dir, run, farm)
     (d / "critiques").mkdir(parents=True, exist_ok=True)
@@ -40,13 +49,6 @@ def read_meta(d: Path) -> FarmMeta:
     return FarmMeta.model_validate_json((d / "meta.json").read_text(encoding="utf-8"))
 
 
-def _append_jsonl(path: Path, lines: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
-        for line in lines:
-            f.write(line + "\n")
-
-
 def _read_jsonl(path: Path) -> list[dict]:
     if not path.exists():
         return []
@@ -55,7 +57,7 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 
 def append_turns(d: Path, turns: list[Turn]) -> None:
-    _append_jsonl(d / "turns.jsonl", [t.model_dump_json() for t in turns])
+    append_events(d, "turns", [t.model_dump() for t in turns])
 
 
 def read_turns(d: Path) -> list[Turn]:
@@ -67,7 +69,7 @@ def next_turn_index(d: Path) -> int:
 
 
 def append_ledger(d: Path, entry: LedgerEntry) -> None:
-    _append_jsonl(d / "ledger.jsonl", [entry.model_dump_json()])
+    append_events(d, "ledger", [entry.model_dump()])
 
 
 def read_ledger(d: Path) -> list[LedgerEntry]:
@@ -75,7 +77,7 @@ def read_ledger(d: Path) -> list[LedgerEntry]:
 
 
 def append_triggers(d: Path, triggers: list[TriggerEmission]) -> None:
-    _append_jsonl(d / "triggers.jsonl", [t.model_dump_json() for t in triggers])
+    append_events(d, "triggers", [t.model_dump() for t in triggers])
 
 
 def read_triggers(d: Path) -> list[TriggerEmission]:

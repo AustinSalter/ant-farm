@@ -30,8 +30,11 @@ def standing_tripwires(corpus: Corpus) -> list[dict]:
             continue
         watches = [e.src for e in corpus.edges
                    if e.rel == "depends_on" and e.dst == nid]
-        out.append({"id": nid, "text": node.text, "watches": watches})
-    return sorted(out, key=lambda t: str(t["id"]))
+        # key name matches SentinelCheck.tripwire_id exactly - the sentinel
+        # echoes ids from this listing, so the listing must show the same key
+        # the report schema demands back.
+        out.append({"tripwire_id": nid, "text": node.text, "watches": watches})
+    return sorted(out, key=lambda t: str(t["tripwire_id"]))
 
 
 def fire_tripwire(corpus: Corpus, tripwire_id: str, evidence_text: str, *,

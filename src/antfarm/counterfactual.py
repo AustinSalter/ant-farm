@@ -36,4 +36,8 @@ def regenerated_to_turns(output: PersonaSwapOutput) -> list[Turn]:
 def persona_swap(host: list[Turn], regenerated: list[Turn],
                  start_iteration: int) -> list[Turn]:
     kept = [t for t in host if t.iteration < start_iteration]
-    return _renumber(kept + regenerated)
+    # filter the regenerated side like graft() filters its donor: the swap agent
+    # may echo a rewritten earlier-iteration context turn, which would duplicate
+    # a kept host turn and break iteration monotonicity in the exported trace.
+    spliced = [t for t in regenerated if t.iteration >= start_iteration]
+    return _renumber(kept + spliced)

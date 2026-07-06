@@ -13,9 +13,14 @@ from antfarm.schema import Node
 
 EmbedFn = Callable[[list[str]], list[list[float]]]
 
+# The locked entailment threshold (spec: empirically tuned). Probe novelty,
+# matcher entity resolution, and clustering are the same semantic judgment
+# ("is this the same atom?") and must move in lockstep.
+ENTAILMENT_THRESHOLD = 0.67
+
 
 def cosine(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b, strict=False))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(y * y for y in b))
     return dot / (na * nb) if na and nb else 0.0
@@ -57,16 +62,24 @@ class _Bucket:
 
 
 class EmbeddingMatcher:
-    def __init__(self, embed_fn: EmbedFn, threshold: float = 0.67):
+    def __init__(self, embed_fn: EmbedFn, threshold: float = ENTAILMENT_THRESHOLD):
         self.embed_fn = embed_fn
         self.threshold = threshold
         self._cache: dict[str, list[float]] = {}
         self._buckets: dict[tuple[str, str], _Bucket] = {}
 
     def _vec(self, text: str) -> list[float]:
-        if text not in self._cache:
-            self._cache[text] = self.embed_fn([text])[0]
-        return self._cache[text]
+        return self._vecs([text])[0]
+
+    def _vecs(self, texts: list[str]) -> list[list[float]]:
+        # one embed_fn call for all misses: a CachedEmbed backend flushes its
+        # file once per call, so batching here avoids a full cache rewrite per
+        # individual text.
+        missing = [t for t in dict.fromkeys(texts) if t not in self._cache]
+        if missing:
+            for text, vec in zip(missing, self.embed_fn(missing), strict=True):
+                self._cache[text] = vec
+        return [self._cache[t] for t in texts]
 
     def _sync_bucket(self, key: tuple[str, str], nodes: dict[str, CorpusNode]) -> _Bucket:
         candidate_ids = [cid for cid, c in nodes.items()
@@ -77,11 +90,13 @@ class EmbeddingMatcher:
         # nodes are only ever added by the reducer, never removed mid-fold; if a
         # previously-indexed id is missing from `nodes`, rebuild defensively.
         if not indexed.issubset(current):
-            bucket.rebuild([(cid, self._vec(nodes[cid].text)) for cid in candidate_ids])
+            vecs = self._vecs([nodes[cid].text for cid in candidate_ids])
+            bucket.rebuild(list(zip(candidate_ids, vecs, strict=True)))
             return bucket
         missing = [cid for cid in candidate_ids if cid not in indexed]
         if missing:
-            bucket.append([(cid, self._vec(nodes[cid].text)) for cid in missing])
+            vecs = self._vecs([nodes[cid].text for cid in missing])
+            bucket.append(list(zip(missing, vecs, strict=True)))
         return bucket
 
     def find_match(self, node: Node, nodes: dict[str, CorpusNode]) -> str | None:
@@ -92,7 +107,7 @@ class EmbeddingMatcher:
 
 
 def entailment_clusters(texts: list[str], embed_fn: EmbedFn,
-                        threshold: float = 0.67) -> list[list[int]]:
+                        threshold: float = ENTAILMENT_THRESHOLD) -> list[list[int]]:
     vecs = embed_fn(texts)
     clusters: list[list[int]] = []
     for i, vec in enumerate(vecs):

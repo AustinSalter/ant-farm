@@ -3,7 +3,6 @@ deterministic step; JSON in (--input), one JSON object out (stdout). The
 workflow's clerk agent runs these commands; nothing else writes events."""
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -42,7 +41,7 @@ from antfarm.harvest import (
 )
 from antfarm.materialize import materialize
 from antfarm.reduce import Corpus, reduce_events
-from antfarm.schema import Vantage, normalize_text
+from antfarm.schema import Vantage, atom_id
 from antfarm.stores import CorpusStore
 from antfarm.tripwires import fire_tripwire, standing_tripwires
 
@@ -52,14 +51,15 @@ def now_ts() -> str:
 
 
 def question_id_for(text: str) -> str:
-    digest = hashlib.sha256(f"question:{normalize_text(text)}".encode()).hexdigest()
-    return f"q-{digest[:12]}"
+    return atom_id("question", text)
 
 
 def get_embed(corpus_dir: Path) -> EmbedFn:
-    cache = corpus_dir / "emb-cache.json"
+    # one cache file per backend: hash (256-dim) and chroma (384-dim) vectors
+    # must never share a cache - a text cached under one backend and served to
+    # the other crashes the matcher's vstack or silently corrupts cosine.
     if os.environ.get("ANTFARM_EMBED") == "hash":
-        return CachedEmbed(cache, hash_embed)
+        return CachedEmbed(corpus_dir / "emb-cache-hash.json", hash_embed)
     from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 
     ef = DefaultEmbeddingFunction()
@@ -67,7 +67,7 @@ def get_embed(corpus_dir: Path) -> EmbedFn:
     def chroma_embed(texts: list[str]) -> list[list[float]]:
         return [list(map(float, v)) for v in ef(texts)]
 
-    return CachedEmbed(cache, chroma_embed)
+    return CachedEmbed(corpus_dir / "emb-cache.json", chroma_embed)
 
 
 def load_corpus(corpus_dir: Path) -> Corpus:
@@ -135,12 +135,9 @@ def cmd_farm_init(args: argparse.Namespace) -> dict:
     question = stored_question(args.corpus)
     # re-observe the hypothesis under the farm's vantage so critiques against it
     # (incl. the premortem) block THIS farm's CONCLUDE gate until sublated. This
-    # harvest is also the source of truth for the farm's hypothesis_id: saturate
-    # mode passes a claim id (holeAtoms.atom_ids[i]) as --hypothesis-id, which is
-    # NOT the id everything downstream (undercuts edges, CONCEDE status events,
-    # tripwire depends_on) keys on - that's the hypothesis-typed node created
-    # right here from --hypothesis-text. --hypothesis-id is kept as an advisory
-    # flag only; the canonical id always comes from this harvest.
+    # harvest is the sole source of the farm's hypothesis_id: everything
+    # downstream (undercuts edges, CONCEDE status events, tripwire depends_on)
+    # keys on the hypothesis-typed node created right here.
     vantage = _vantage(args.run, args.farm, args.family, args.persona, round=1)
     batch = AtomBatch.model_validate(
         {"atoms": [{"type": "hypothesis", "text": args.hypothesis_text}]})
@@ -231,13 +228,19 @@ def cmd_harvest_verify(args: argparse.Namespace) -> dict:
 def cmd_harvest_stitch(args: argparse.Namespace) -> dict:
     question = stored_question(args.corpus)
     output = StitchOutput.model_validate(read_payload(args))
-    corpus = load_corpus(args.corpus)
+    embed = get_embed(args.corpus)
+    runs_root = args.corpus / "runs"
+    events = read_events(runs_root) if runs_root.exists() else []
+    corpus = reduce_events(events, matcher=EmbeddingMatcher(embed))
     vantage = _vantage(args.run, "stitcher", "session", "stitcher", round=0)
     result = stitch_harvest(output, vantage=vantage, corpus=corpus,
                             question_id=question["question_id"], ts=now_ts())
     if result.events:
         append_events(args.corpus / "runs" / args.run, "p5-stitch", result.events)
-    after = load_corpus(args.corpus)
+    # fold the fresh events onto what was already read: the appended p5-stitch
+    # file sorts last in the newest run, so this reproduces the on-disk replay
+    # order without a second full read of the event log.
+    after = reduce_events(events + result.events, matcher=EmbeddingMatcher(embed))
     cent = compute_centrality(build_graph(after))
     declaration = {
         "kind": output.declaration_kind,
@@ -270,13 +273,12 @@ def cmd_harvest_atoms(args: argparse.Namespace) -> dict:
 
 
 def cmd_gate(args: argparse.Namespace) -> dict:
-    output = ScoutRoundOutput.model_validate(read_payload(args))
     corpus = load_corpus(args.corpus)
     d = farm_mod.farm_dir(args.corpus, args.run, args.farm)
     critiques_dir = d / "critiques"
     critiques = len(list(critiques_dir.glob("*.json"))) if critiques_dir.exists() else 0
     result = resolve_decision(
-        scout_decision=output.decision, corpus=corpus, farm=args.farm,
+        scout_decision=args.decision, corpus=corpus, farm=args.farm, run=args.run,
         triggers=farm_mod.read_triggers(d), ledger=farm_mod.read_ledger(d),
         final_round=args.final_round, critiques=critiques)
     return result.model_dump()
@@ -297,10 +299,12 @@ def cmd_query(args: argparse.Namespace) -> list[dict]:
     if not chroma_dir.exists():
         return []
     store = CorpusStore.persistent(chroma_dir, get_embed(args.corpus))
-    try:
-        return store.query(args.collection, args.text, n=args.n)
-    except Exception:  # collection missing before first materialize
+    # only a genuinely missing collection means "nothing indexed yet"; any other
+    # failure (corrupt store, embedding error) must surface - query is the only
+    # corpus access agents have, so a swallowed error runs the survey blind.
+    if not store.has_collection(args.collection):
         return []
+    return store.query(args.collection, args.text, n=args.n)
 
 
 def cmd_tripwires_list(args: argparse.Namespace) -> list[dict]:
@@ -311,6 +315,12 @@ def cmd_tripwire_fire(args: argparse.Namespace) -> dict:
     payload = read_payload(args)
     question = stored_question(args.corpus)
     corpus = load_corpus(args.corpus)
+    # an id that matches no standing tripwire must not fire into the void:
+    # appending the evidence anyway would leave a permanent orphan node with no
+    # undercuts edges, and the stale hypothesis would never be contested.
+    known = {t["tripwire_id"] for t in standing_tripwires(corpus)}
+    if args.id not in known:
+        return {"affected": [], "unknown_tripwire": True}
     vantage = _vantage(args.run, "sentinel", "session", "sentinel", round=0)
     events, affected = fire_tripwire(corpus, args.id, payload["evidence"],
                                      vantage=vantage,
@@ -413,7 +423,6 @@ def build_parser() -> argparse.ArgumentParser:
     add("run-new", **{"--question": {"required": True}})
     add("brief")
     add("farm-init", **{"--run": {"required": True}, "--farm": {"required": True},
-                        "--hypothesis-id": {"required": True},
                         "--hypothesis-text": {"required": True},
                         "--persona": {"required": True}, "--family": {"required": True}})
     add("harvest-framing", **{"--run": {"required": True}})
@@ -433,6 +442,9 @@ def build_parser() -> argparse.ArgumentParser:
                             "--sensor": {"default": "model",
                                          "choices": ["model", "human"]}})
     add("gate", **{"--run": {"required": True}, "--farm": {"required": True},
+                   "--decision": {"required": True,
+                                  "choices": ["CONTINUE", "CONCLUDE",
+                                              "ELEVATE", "CONCEDE"]},
                    "--final-round": {"action": "store_true"}})
     add("verification-queue")
     add("probe")

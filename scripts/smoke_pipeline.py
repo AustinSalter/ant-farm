@@ -152,25 +152,27 @@ def main() -> None:
         check("three rivals harvested incl. null", len(framed["rivals"]) == 3)
         for farm, rival in (("A", framed["rivals"][0]), ("B", framed["rivals"][1])):
             cli(corpus, "farm-init", "--run", run, "--farm", farm,
-                "--hypothesis-id", rival["id"], "--hypothesis-text", rival["text"],
+                "--hypothesis-text", rival["text"],
                 "--persona", "an energy analyst", "--family", "opus")
 
         print("farm A: continue -> critique -> sublate -> conclude")
         r1 = scout_a(1, "CONTINUE")
         cli(corpus, "harvest-scout", "--run", run, "--farm", "A", "--round", "1",
             "--family", "opus", "--persona", "analyst", payload=r1)
-        gate1 = cli(corpus, "gate", "--run", run, "--farm", "A", payload=r1)
+        gate1 = cli(corpus, "gate", "--run", run, "--farm", "A",
+                    "--decision", "CONTINUE")
         check("round 1 gate says CONTINUE", gate1["decision"] == "CONTINUE")
         cli(corpus, "harvest-critique", "--run", run, "--farm", "A", "--round", "1",
             payload=CRITIQUE)
         blocked = cli(corpus, "gate", "--run", run, "--farm", "A",
-                      payload=scout_a(1, "CONCLUDE"))
+                      "--decision", "CONCLUDE")
         check("premature CONCLUDE is blocked", blocked["decision"] == "CONTINUE"
               and blocked["forced"])
         r2 = scout_a(2, "CONCLUDE")
         cli(corpus, "harvest-scout", "--run", run, "--farm", "A", "--round", "2",
             "--family", "opus", "--persona", "analyst", payload=r2)
-        gate2 = cli(corpus, "gate", "--run", run, "--farm", "A", payload=r2)
+        gate2 = cli(corpus, "gate", "--run", run, "--farm", "A",
+                    "--decision", "CONCLUDE")
         check("sublated CONCLUDE passes the gate", gate2["decision"] == "CONCLUDE")
         cli(corpus, "farm-outcome", "--run", run, "--farm", "A",
             "--decision", "CONCLUDE")
@@ -178,7 +180,8 @@ def main() -> None:
         print("farm B: honest concession")
         cli(corpus, "harvest-scout", "--run", run, "--farm", "B", "--round", "1",
             "--family", "sonnet", "--persona", "analyst", payload=SCOUT_B)
-        gate_b = cli(corpus, "gate", "--run", run, "--farm", "B", payload=SCOUT_B)
+        gate_b = cli(corpus, "gate", "--run", run, "--farm", "B",
+                     "--decision", "CONCEDE")
         check("CONCEDE passes through the gate", gate_b["decision"] == "CONCEDE")
         cli(corpus, "farm-outcome", "--run", run, "--farm", "B", "--decision",
             "CONCEDE", "--died-because", SCOUT_B["died_because"])

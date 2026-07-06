@@ -222,3 +222,29 @@ def test_verify_harvest_upgrades_verified_via_reobservation():
     reduced = reduce_events([original, *result.events])
     assert reduced.nodes[claim_id].verified is True
     assert reduced.nodes[claim_id].sightings == 2
+
+
+def test_stitch_ach_never_scores_against_rejected_atoms():
+    # a rejected investigation atom produced no node event; an ACH cell quoting
+    # its text must go to unresolved, not become a dangling scored_against edge
+    # to a node that never exists
+    corpus, hyp_id, claim_id = _hyp_corpus()
+    rejected_text = "It contradicts the LBNL payback data."
+    stitch = StitchOutput(
+        ach=[ACHCell(evidence_text=rejected_text, hypothesis_text=HYP,
+                     consistency="inconsistent")],
+        investigations=[StitchInvestigation(
+            farms=["A", "B"], disagreement="Farms disagree on the payback data.",
+            resolution="One farm cited a non-self-contained rebuttal.",
+            atoms=[AtomEmission(type="evidence", text=rejected_text)])],
+        declaration_kind="frontier", declaration_summary="Frontier.",
+        positions=[BasinPosition(hypothesis_text=HYP, condition=None)],
+        dissolve=Dissolve())
+    result = stitch_harvest(stitch, vantage=make_vantage(farm="stitcher"),
+                            corpus=corpus, question_id=Q, ts=TS)
+    assert result.rejected and result.rejected[0]["text"] == rejected_text
+    scored = [e for e in result.events
+              if e["kind"] == "edge" and e["payload"]["rel"] == "scored_against"]
+    assert scored == []
+    assert {"src": rejected_text, "dst": HYP,
+            "rel": "scored_against"} in result.unresolved

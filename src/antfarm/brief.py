@@ -4,8 +4,8 @@ verification queue (Phase 4 floor), and the hole probe (Phase 6)."""
 import json
 from pathlib import Path
 
-from antfarm.cluster import EmbedFn, cosine
-from antfarm.farm import last_compressed, read_meta, read_outcome
+from antfarm.cluster import ENTAILMENT_THRESHOLD, EmbedFn, cosine
+from antfarm.farm import last_compressed, list_farms, read_meta, read_outcome
 from antfarm.graph import build_graph, compute_centrality, compute_view, extract_cruxes
 from antfarm.reduce import Corpus
 from antfarm.tripwires import standing_tripwires
@@ -38,16 +38,12 @@ def warm_brief(corpus: Corpus, question_id: str, runs_root: Path) -> dict:
 
 def stitch_brief(corpus: Corpus, corpus_dir: Path, run: str) -> dict:
     farms = []
-    farms_root = corpus_dir / "farms" / run
-    if farms_root.exists():
-        for d in sorted(farms_root.iterdir()):
-            if not (d / "meta.json").exists():
-                continue
-            meta = read_meta(d)
-            farms.append({"farm": meta.farm, "hypothesis_id": meta.hypothesis_id,
-                          "hypothesis_text": meta.hypothesis_text,
-                          "compressed_state": last_compressed(d),
-                          "outcome": read_outcome(d)})
+    for d in list_farms(corpus_dir, run):
+        meta = read_meta(d)
+        farms.append({"farm": meta.farm, "hypothesis_id": meta.hypothesis_id,
+                      "hypothesis_text": meta.hypothesis_text,
+                      "compressed_state": last_compressed(d),
+                      "outcome": read_outcome(d)})
     evidence = [{"id": nid, "text": n.text, "strength": n.strength,
                  "diagnosticity": n.diagnosticity, "verified": n.verified}
                 for nid, n in sorted(corpus.nodes.items()) if n.type == "evidence"]
@@ -68,7 +64,8 @@ def verification_queue(corpus: Corpus) -> list[dict]:
     return sorted(out, key=lambda item: (-item["round"], item["id"]))
 
 
-def probe(corpus: Corpus, embed: EmbedFn, text: str, threshold: float = 0.67) -> dict:
+def probe(corpus: Corpus, embed: EmbedFn, text: str,
+          threshold: float = ENTAILMENT_THRESHOLD) -> dict:
     candidates = [(nid, node.text) for nid, node in sorted(corpus.nodes.items())
                   if node.type in _PROBE_TYPES]
     if not candidates:

@@ -29,7 +29,7 @@ def surveyed(tmp_path):
     rival = run_cli(corpus_dir, "harvest-framing", "--run", run,
                     payload=framing_fixture())["rivals"][0]
     run_cli(corpus_dir, "farm-init", "--run", run, "--farm", "A",
-            "--hypothesis-id", rival["id"], "--hypothesis-text", rival["text"],
+            "--hypothesis-text", rival["text"],
             "--persona", "officer", "--family", "opus")
     run_cli(corpus_dir, "harvest-scout", "--run", run, "--farm", "A", "--round", "1",
             "--family", "opus", "--persona", "officer",

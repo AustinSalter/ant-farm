@@ -7,6 +7,13 @@ from antfarm.schema import Edge, Node, NodeStatus, Vantage
 _DIAG_RANK = {None: 0, "none": 1, "med": 2, "high": 3}
 _VALID_STATUSES = set(get_args(NodeStatus))
 
+# Types whose identity is the exact content hash, never a matcher merge: rival
+# hypotheses on one question routinely embed above the entailment threshold
+# (they share subject terms), and folding them together aliases one rival onto
+# another - premortem undercuts vanish into `unresolved` and a CONCEDE status
+# lands on the wrong hypothesis.
+EXACT_IDENTITY_TYPES = frozenset({"hypothesis"})
+
 
 class CorpusNode(Node):
     vantages: list[Vantage] = Field(default_factory=list)
@@ -95,7 +102,8 @@ def reduce_events(events: list[dict], matcher: Matcher | None = None) -> Corpus:
         if kind == "node":
             node = Node.model_validate(payload)
             target = node.id if node.id in corpus.nodes else (
-                matcher.find_match(node, corpus.nodes) if matcher else None)
+                matcher.find_match(node, corpus.nodes)
+                if matcher and node.type not in EXACT_IDENTITY_TYPES else None)
             if target:
                 _observe(corpus.nodes[target], node)
                 if node.id != target:

@@ -138,7 +138,12 @@ def stitch_harvest(output: StitchOutput, *, vantage: Vantage, corpus: Corpus,
     edges = [e for inv in output.investigations for e in inv.edges]
     result = _convert(atoms, edges, vantage=vantage, corpus=corpus,
                       question_id=question_id, ts=ts)
-    batch = {normalize_text(a.text): a for a in atoms}
+    # resolve ACH refs against accepted atoms only: a rejected atom produced no
+    # node event, so resolving against it would emit a scored_against edge to a
+    # node that never exists - phantom evidence that ach_scores would count.
+    accepted_ids = set(result.atom_ids)
+    batch = {normalize_text(a.text): a for a in atoms
+             if atom_id(a.type, a.text) in accepted_ids}
     for cell in output.ach:
         src = resolve_ref(cell.evidence_text, batch, corpus)
         dst = resolve_ref(cell.hypothesis_text, batch, corpus)

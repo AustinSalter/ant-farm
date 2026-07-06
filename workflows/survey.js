@@ -46,8 +46,12 @@ const CLERK_SCHEMA = {
   },
 }
 
+// namespace scratch paths by corpus so two surveys on different corpora can't
+// overwrite each other's payloads between the clerk's write and exec steps
+const SCRATCH_NS = CORPUS.replace(/[^a-zA-Z0-9]+/g, '-')
+
 async function cli(cmd, payload, label, phaseName) {
-  const scratch = `/tmp/antfarm-${label.replace(/[^a-zA-Z0-9]+/g, '-')}.json`
+  const scratch = `/tmp/antfarm-${SCRATCH_NS}-${label.replace(/[^a-zA-Z0-9]+/g, '-')}.json`
   const steps = ['Execute this for the ant-farm survey pipeline, from the repository root.']
   if (payload !== undefined) {
     steps.push(
@@ -67,7 +71,11 @@ async function cli(cmd, payload, label, phaseName) {
   return JSON.parse(r.stdout)
 }
 
-const q = (s) => JSON.stringify(s)  // shell-safe quoting for string flags
+// POSIX single-quote escaping: the clerk runs the command through a real shell,
+// where double quotes still expand $ and backticks - JSON.stringify is NOT
+// shell quoting. Inside single quotes nothing expands; embedded single quotes
+// close, escape, and reopen ('\'' -> ').
+const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
 
 // --- prompts ------------------------------------------------------------------
 
@@ -191,7 +199,11 @@ if (!setup.first_run) {
     for (const check of fired) {
       const res = await cli(`tripwire-fire --run ${RUN} --id ${check.tripwire_id}`,
         { evidence: check.evidence }, `fire-${check.tripwire_id}`, 'Sentinel')
-      log(`tripwire ${check.tripwire_id} fired; ${res.affected.length} node(s) contested`)
+      if (res.unknown_tripwire) {
+        log(`tripwire ${check.tripwire_id}: id matches no standing tripwire; skipped`)
+      } else {
+        log(`tripwire ${check.tripwire_id} fired; ${res.affected.length} node(s) contested`)
+      }
     }
     sentinelNote = fired.length
       ? `${fired.length} tripwire(s) fired this run: ` +
@@ -226,18 +238,17 @@ if (args.stopAfter === 'framing') {  // spec §5: --frame-only
 }
 const farms = framed.rivals.slice(0, MODE.farms).map((rival, i) => ({
   key: String.fromCharCode(65 + i),
-  hypothesis_id: rival.id,
   hypothesis_text: rival.text,
   persona: PERSONAS[i % PERSONAS.length],
   family: FAMILIES[i % FAMILIES.length],
 }))
-for (const farm of farms) {
-  await cli(
-    `farm-init --run ${RUN} --farm ${farm.key} --hypothesis-id ${farm.hypothesis_id}` +
-    ` --hypothesis-text ${q(farm.hypothesis_text)} --persona ${q(farm.persona)}` +
-    ` --family ${farm.family}`,
-    undefined, `farm-init-${farm.key}`, 'Framing')
-}
+// farm-inits are independent (each writes only its own farm dir and event
+// file, no embedding cache access), so run them concurrently
+await parallel(farms.map((farm) => () => cli(
+  `farm-init --run ${RUN} --farm ${farm.key}` +
+  ` --hypothesis-text ${q(farm.hypothesis_text)} --persona ${q(farm.persona)}` +
+  ` --family ${farm.family}`,
+  undefined, `farm-init-${farm.key}`, 'Framing')))
 log(`${farms.length} farm(s): ` +
   farms.map((f) => `${f.key}=${f.family}/${f.persona}`).join(', '))
 
@@ -266,8 +277,9 @@ async function runFarm(farm) {
     }
     const finalRound = round === MODE.maxRounds
     const gate = await cli(
-      `gate --run ${RUN} --farm ${farm.key}${finalRound ? ' --final-round' : ''}`,
-      out, `gate-${farm.key}-r${round}`, 'Farms')
+      `gate --run ${RUN} --farm ${farm.key} --decision ${out.decision}` +
+      `${finalRound ? ' --final-round' : ''}`,
+      undefined, `gate-${farm.key}-r${round}`, 'Farms')
     if (gate.decision !== 'CONTINUE') {
       await cli(
         `farm-outcome --run ${RUN} --farm ${farm.key} --decision ${gate.decision}` +
@@ -357,20 +369,23 @@ if (holes.length) {
     { atoms: holes.map((text) => ({ type: 'claim', text })), edges: [] },
     'harvest-holes', 'Holes')
   if (MODE.gapWave && (!budget.total || budget.remaining() > 100_000)) {
-    const gapFarms = holes.slice(0, 2).map((text, i) => ({
-      key: `G${i + 1}`,
-      hypothesis_id: holeAtoms.atom_ids[i],
-      hypothesis_text: text,
-      persona: PERSONAS[(farms.length + i) % PERSONAS.length],
-      family: FAMILIES[(farms.length + i) % FAMILIES.length],
-    }))
-    for (const farm of gapFarms) {
-      await cli(
-        `farm-init --run ${RUN} --farm ${farm.key} --hypothesis-id ${farm.hypothesis_id}` +
-        ` --hypothesis-text ${q(farm.hypothesis_text)} --persona ${q(farm.persona)}` +
-        ` --family ${farm.family}`,
-        undefined, `farm-init-${farm.key}`, 'Holes')
-    }
+    // only holes that harvest-atoms accepted can seed a farm: probe checks
+    // embedding novelty, not self-containedness, and farm-init hard-fails on a
+    // non-self-contained hypothesis text - an unfiltered hole would abort the
+    // whole run here.
+    const rejectedTexts = new Set(holeAtoms.rejected.map((r) => r.text))
+    const gapFarms = holes.filter((text) => !rejectedTexts.has(text))
+      .slice(0, 2).map((text, i) => ({
+        key: `G${i + 1}`,
+        hypothesis_text: text,
+        persona: PERSONAS[(farms.length + i) % PERSONAS.length],
+        family: FAMILIES[(farms.length + i) % FAMILIES.length],
+      }))
+    await parallel(gapFarms.map((farm) => () => cli(
+      `farm-init --run ${RUN} --farm ${farm.key}` +
+      ` --hypothesis-text ${q(farm.hypothesis_text)} --persona ${q(farm.persona)}` +
+      ` --family ${farm.family}`,
+      undefined, `farm-init-${farm.key}`, 'Holes')))
     log(`gap wave: spawning ${gapFarms.length} farm(s) briefed at the largest holes`)
     const gapOutcomes = (await parallel(gapFarms.map((farm) => () => runFarm(farm))))
       .filter(Boolean)
