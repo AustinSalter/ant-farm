@@ -1,8 +1,10 @@
 """Script-enforced farm decisions (spec §5 Phase 2). The scout proposes;
 resolve_decision disposes. CONCLUDE needs >=1 HIGH falsification trigger,
-no un-sublated undercutters against the farm's atoms, and a clean
-degeneration ledger. Two consecutive novel-content-free patches force
-ELEVATE (Lakatos, spec §7)."""
+no un-sublated undercutters against the farm's atoms, a clean degeneration
+ledger, and at least one blind critique on record (spec §5: a round-1
+CONCLUDE is forced to CONTINUE so the premortem mechanism gets to run
+before the farm is allowed to conclude). Two consecutive novel-content-free
+patches force ELEVATE (Lakatos, spec §7)."""
 
 from pydantic import BaseModel, Field
 
@@ -31,10 +33,11 @@ def farm_node_ids(corpus: Corpus, farm: str) -> set[str]:
 
 _EXHAUSTED = "round budget exhausted"
 _DEGENERATE = "degeneration ledger: two consecutive novel-content-free patches"
+_UNCRITIQUED = "no blind critique on record - an uncritiqued thesis cannot conclude"
 
 
 def conclude_blockers(corpus: Corpus, farm: str, triggers: list[TriggerEmission],
-                      ledger: list[LedgerEntry]) -> list[str]:
+                      ledger: list[LedgerEntry], critiques: int = 0) -> list[str]:
     reasons = []
     if not any(t.severity == "high" for t in triggers):
         reasons.append("no HIGH-severity falsification trigger on record")
@@ -46,18 +49,20 @@ def conclude_blockers(corpus: Corpus, farm: str, triggers: list[TriggerEmission]
             f"{len(standing)} un-sublated undercutter(s) against this farm's atoms")
     if degeneration_forced(ledger):
         reasons.append(_DEGENERATE)
+    if critiques == 0:
+        reasons.append(_UNCRITIQUED)
     return reasons
 
 
 def resolve_decision(*, scout_decision: FarmDecision, corpus: Corpus, farm: str,
                      triggers: list[TriggerEmission], ledger: list[LedgerEntry],
-                     final_round: bool) -> GateResult:
+                     final_round: bool, critiques: int = 0) -> GateResult:
     if scout_decision in ("CONCEDE", "ELEVATE"):
         return GateResult(decision=scout_decision)
     if degeneration_forced(ledger):
         return GateResult(decision="ELEVATE", forced=True, reasons=[_DEGENERATE])
     if scout_decision == "CONCLUDE":
-        reasons = conclude_blockers(corpus, farm, triggers, ledger)
+        reasons = conclude_blockers(corpus, farm, triggers, ledger, critiques)
         if not reasons:
             return GateResult(decision="CONCLUDE")
         if final_round:

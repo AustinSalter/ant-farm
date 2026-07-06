@@ -53,6 +53,16 @@ def test_conclude_blocked_by_unsublated_undercutter():
     assert any("undercutter" in r for r in result.reasons)
 
 
+def test_conclude_blocked_without_critique():
+    # HIGH trigger, clean ledger, no undercutters - the only thing missing is a
+    # blind critique on record, e.g. a round-1 scout proposing CONCLUDE outright.
+    result = resolve_decision(scout_decision="CONCLUDE", corpus=_farm_corpus(False),
+                              farm="A", triggers=[HIGH], ledger=[], final_round=False,
+                              critiques=0)
+    assert result.decision == "CONTINUE" and result.forced
+    assert any("blind critique" in r for r in result.reasons)
+
+
 def test_conclude_passes_when_gates_clear():
     corpus = _farm_corpus(True)
     # answer the undercutter with a live rebuttal - the challenge is no longer standing
@@ -63,7 +73,7 @@ def test_conclude_passes_when_gates_clear():
     corpus.edges.append(make_edge(answer.id, attack_id, "rebuts"))
     result = resolve_decision(scout_decision="CONCLUDE", corpus=corpus, farm="A",
                               triggers=[HIGH, LOW], ledger=[_entry(True)],
-                              final_round=False)
+                              final_round=False, critiques=1)
     assert result.decision == "CONCLUDE" and not result.forced
 
 

@@ -273,10 +273,12 @@ def cmd_gate(args: argparse.Namespace) -> dict:
     output = ScoutRoundOutput.model_validate(read_payload(args))
     corpus = load_corpus(args.corpus)
     d = farm_mod.farm_dir(args.corpus, args.run, args.farm)
+    critiques_dir = d / "critiques"
+    critiques = len(list(critiques_dir.glob("*.json"))) if critiques_dir.exists() else 0
     result = resolve_decision(
         scout_decision=output.decision, corpus=corpus, farm=args.farm,
         triggers=farm_mod.read_triggers(d), ledger=farm_mod.read_ledger(d),
-        final_round=args.final_round)
+        final_round=args.final_round, critiques=critiques)
     return result.model_dump()
 
 
