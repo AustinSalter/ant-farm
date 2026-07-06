@@ -15,8 +15,11 @@ Run all five against the framed hypothesis:
 | Model dependency | Have the model's assumptions stopped holding? | Outdated model |
 | Implementation | Does this assume rational response? | Perverse or irrational response |
 
-Each probe that fails becomes a finding. A probe that passes is not a finding;
-do not pad the report.
+Each probe that fails becomes a finding. A meta-probe finding carries the kind
+of the failure it exposes: an unlicensed or non-generalizing inference is a
+warrant_probe; unaddressed or non-diagnostic evidence is an evidence_challenge;
+statements that cannot both hold are a contradiction; a failure-path narrative
+is a premortem. A probe that passes is not a finding; do not pad the report.
 
 ## Rebutting vs Undercutting
 

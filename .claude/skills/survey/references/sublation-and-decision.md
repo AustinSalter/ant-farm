@@ -8,16 +8,16 @@ expand. The decision closes it: CONTINUE | CONCLUDE | ELEVATE | CONCEDE.
 Read `critiques/*.json` in your farm directory. Every unaddressed finding gets
 exactly one disposition, recorded in the sublation list:
 
-- **accept** — the finding is right. Change your state: revise the thesis,
+- **accepted** — the finding is right. Change your state: revise the thesis,
   demote the evidence, drop the claim. Say what changed.
-- **rebut** — the finding is wrong. Emit a self-contained claim atom and a
+- **rebutted** — the finding is wrong. Emit a self-contained claim atom and a
   rebuts edge quoting the finding's text exactly. A rebuttal names why the
   finding fails, not why your thesis is nice.
-- **qualify** — the finding is right about scope. Narrow the thesis to the
+- **qualified** — the finding is right about scope. Narrow the thesis to the
   domain where it holds and emit the qualified claim.
 
-Silence is not a disposition. A finding you neither accept, rebut, nor qualify
-stands against you at the CONCLUDE gate.
+Silence is not a disposition. A finding you neither accepted, rebutted, nor
+qualified stands against you at the CONCLUDE gate.
 
 ## Preservation Gate (Required)
 
@@ -97,8 +97,8 @@ Original hypothesis: "Stripe has better documentation and easier integration."
 Standing critique: an undercut — documentation quality is copyable, so
 adoption evidence cannot license a durable-advantage conclusion.
 
-- Disposition: accept. The counter is material and the thesis cannot absorb it
-  unchanged — leaving the thesis as-is would be an amputation.
+- Disposition: accepted. The counter is material and the thesis cannot absorb
+  it unchanged — leaving the thesis as-is would be an amputation.
 - Preservation gate: correctly identifies that developer experience drives
   adoption; correctly frames payments as infrastructure, not product; any
   revision must retain the developer-centric insight.
