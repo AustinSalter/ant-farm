@@ -336,8 +336,26 @@ R/E/C as probabilities.
 
 ### 9.1 dialectic-plugin v2 (the advocate)
 
-dialectic-plugin v2 becomes ant-farm's first client. Changes:
+dialectic-plugin v2 becomes ant-farm's first client — and its second sensor. The seam
+is two-way: **seed, consume, compound** (amended 2026-07-05). A dialectic session is
+not a detached tool that reads the map; it is an instrument pass that enriches it.
+Changes:
 
+- **Two-way seam (added 2026-07-05):**
+  - *Seed* — a v2 session opens with a warm-start brief from the corpus: the view
+    neighborhood of its question (same brief machinery as farm warm-starts). Prior
+    basins, cruxes, and standing challenges are the session's starting terrain,
+    never re-derived.
+  - *Consume* — distill and forge as view consumers (below), unchanged.
+  - *Compound* — at session end, the session's atoms harvest into the event log as
+    a first-class vantage (`sensor: "model"`, advocate persona, session id as run).
+    Claims, evidence, rebuttals, qualifications map from the sublation loop's output
+    exactly as scout emissions do (the v1 marker vocabulary already maps: bridge →
+    edge, rebuttal → rebuts/undercuts, support + licence → supports + warrant).
+    Concessions land as status events with died-because records. Entailment merge
+    dedups against the well; a re-found claim increments sightings — every advocacy
+    session compounds the corpus instead of evaporating. Plan 4 implements this
+    harvest against plan 2's emission schema and CLI; no new corpus machinery.
 - **Deleted:** stop-hook loop (both implementations), dead `explorations`/`elevate_trigger`
   code, `serialize-trace.js` (schema-forced atoms make scraping obsolete), the broken
   `patterns/{domain}.md` references (files split for real), SKILL.md's contradictory
@@ -439,8 +457,28 @@ verification floor) — only after keel validates against the §9.2 counterfactu
 ## 13. Open questions
 
 1. Entailment-clustering threshold: which model/method for "same consideration," and is
-   the threshold per-question or global? (Eval §10.3 decides empirically.)
+   the threshold per-question or global? (Eval §10.3 decides empirically. RESOLVED
+   2026-07-04 for the default embed: 0.67, plan 1 merge-fidelity eval; per-question
+   thresholds remain open.)
 2. Family mix when only Anthropic models are available in the runtime — is persona+CoT
    diversity alone enough to claim n_eff > 1.5 per 3 farms? (Measure, then decide.)
 3. Where human atoms enter: CLI command, Obsidian inbox note, or both?
 4. License/positioning of ant-farm (the coverage-certificate method is publishable).
+5. **Round-continuity ablation (added 2026-07-05, decide by A/B, not argument).** Two
+   hypotheses about what carries a farm's reasoning between rounds:
+   - *Accumulation-as-gradient (Austin's prior):* the session trajectory is optimizer
+     state — momentum, unverbalized leads, the exact phrasing of earlier moves. Fresh
+     context per round zeroes the velocity and keeps only the position; carry-over is
+     what makes successive rounds sharper.
+   - *Compression-as-hygiene (current design):* long contexts drift — self-anchoring,
+     content-free patches, sycophancy toward one's own prior text. Farm-dir carryover
+     (compressed state + critiques + atoms) keeps the position and sheds the drift.
+   Test: same questions, same personas, two arms — (A) fresh scout per round with
+   farm-dir carryover (as built); (B) one long-context scout running all rounds in a
+   single agent call, same pass protocol, same emission schema. Both arms already
+   export everything needed to score: per-farm view admissions, sightings earned,
+   challenges survived after blind critique, degeneration-ledger state,
+   CONCLUDE-gate outcomes, and retained transcripts for keel's coherence labels.
+   Cheap to run once plan 2 lands — arm B is a prompt-level variant of the same
+   workflow, not a second architecture. If B wins, continuity fidelity (not agent
+   count) becomes the tuning knob; if A wins, the ledger evidence explains why.

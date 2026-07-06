@@ -30,6 +30,9 @@ jobs:
       - name: Type check
         run: uv run mypy src
 
+      - name: Workflow script syntax
+        run: node scripts/check_workflow.mjs
+
       - name: Tests
         run: uv run pytest -v
 
@@ -38,3 +41,6 @@ jobs:
 
       - name: Smoke test (end-to-end pipeline)
         run: uv run python scripts/smoke.py
+
+      - name: Pipeline smoke test (survey CLI, offline embeddings)
+        run: uv run python scripts/smoke_pipeline.py

@@ -16,6 +16,9 @@ EdgeRel = Literal[
 ID_PREFIX: dict[str, str] = {
     "claim": "c", "evidence": "e", "tension": "t", "crux": "x",
     "hypothesis": "h", "source": "s", "vantage": "v", "tripwire": "w",
+    # not a NodeType: question ids share the content-hash scheme (cli.py) but
+    # questions are never corpus nodes.
+    "question": "q",
 }
 
 

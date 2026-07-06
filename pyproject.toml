@@ -38,7 +38,13 @@ disallow_untyped_defs = true
 warn_return_any = true
 
 [[tool.mypy.overrides]]
-module = ["test_schema", "test_events", "test_reduce", "test_cluster", "test_graph", "test_stores", "test_transcript", "helpers", "conftest"]
+module = [
+    "test_schema", "test_events", "test_reduce", "test_cluster", "test_graph",
+    "test_stores", "test_transcript", "test_counterfactual", "test_render",
+    "test_emission", "test_harvest", "test_gates", "test_tripwires", "test_analysis",
+    "test_farm", "test_brief", "test_cli", "test_materialize", "test_agents",
+    "helpers", "conftest",
+]
 disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]

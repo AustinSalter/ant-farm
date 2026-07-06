@@ -1,5 +1,9 @@
+import hashlib
+import json
 import math
+import os
 from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 from numpy.typing import NDArray
@@ -9,9 +13,14 @@ from antfarm.schema import Node
 
 EmbedFn = Callable[[list[str]], list[list[float]]]
 
+# The locked entailment threshold (spec: empirically tuned). Probe novelty,
+# matcher entity resolution, and clustering are the same semantic judgment
+# ("is this the same atom?") and must move in lockstep.
+ENTAILMENT_THRESHOLD = 0.67
+
 
 def cosine(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b, strict=False))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(y * y for y in b))
     return dot / (na * nb) if na and nb else 0.0
@@ -53,16 +62,24 @@ class _Bucket:
 
 
 class EmbeddingMatcher:
-    def __init__(self, embed_fn: EmbedFn, threshold: float = 0.67):
+    def __init__(self, embed_fn: EmbedFn, threshold: float = ENTAILMENT_THRESHOLD):
         self.embed_fn = embed_fn
         self.threshold = threshold
         self._cache: dict[str, list[float]] = {}
         self._buckets: dict[tuple[str, str], _Bucket] = {}
 
     def _vec(self, text: str) -> list[float]:
-        if text not in self._cache:
-            self._cache[text] = self.embed_fn([text])[0]
-        return self._cache[text]
+        return self._vecs([text])[0]
+
+    def _vecs(self, texts: list[str]) -> list[list[float]]:
+        # one embed_fn call for all misses: a CachedEmbed backend flushes its
+        # file once per call, so batching here avoids a full cache rewrite per
+        # individual text.
+        missing = [t for t in dict.fromkeys(texts) if t not in self._cache]
+        if missing:
+            for text, vec in zip(missing, self.embed_fn(missing), strict=True):
+                self._cache[text] = vec
+        return [self._cache[t] for t in texts]
 
     def _sync_bucket(self, key: tuple[str, str], nodes: dict[str, CorpusNode]) -> _Bucket:
         candidate_ids = [cid for cid, c in nodes.items()
@@ -73,11 +90,13 @@ class EmbeddingMatcher:
         # nodes are only ever added by the reducer, never removed mid-fold; if a
         # previously-indexed id is missing from `nodes`, rebuild defensively.
         if not indexed.issubset(current):
-            bucket.rebuild([(cid, self._vec(nodes[cid].text)) for cid in candidate_ids])
+            vecs = self._vecs([nodes[cid].text for cid in candidate_ids])
+            bucket.rebuild(list(zip(candidate_ids, vecs, strict=True)))
             return bucket
         missing = [cid for cid in candidate_ids if cid not in indexed]
         if missing:
-            bucket.append([(cid, self._vec(nodes[cid].text)) for cid in missing])
+            vecs = self._vecs([nodes[cid].text for cid in missing])
+            bucket.append(list(zip(missing, vecs, strict=True)))
         return bucket
 
     def find_match(self, node: Node, nodes: dict[str, CorpusNode]) -> str | None:
@@ -88,7 +107,7 @@ class EmbeddingMatcher:
 
 
 def entailment_clusters(texts: list[str], embed_fn: EmbedFn,
-                        threshold: float = 0.67) -> list[list[int]]:
+                        threshold: float = ENTAILMENT_THRESHOLD) -> list[list[int]]:
     vecs = embed_fn(texts)
     clusters: list[list[int]] = []
     for i, vec in enumerate(vecs):
@@ -99,3 +118,56 @@ def entailment_clusters(texts: list[str], embed_fn: EmbedFn,
         else:
             clusters.append([i])
     return clusters
+
+
+def hash_embed(texts: list[str]) -> list[list[float]]:
+    """Deterministic 256-dim hashed word unigram+bigram embedding. For tests and
+    offline smoke runs (ANTFARM_EMBED=hash) - not a semantic model. Word grams in
+    256 dims keep distinct sentences well below the 0.67 entailment threshold
+    (char trigrams did not: nearly all English pairs merged)."""
+    out = []
+    for text in texts:
+        vec = [0.0] * 256
+        words = text.lower().split()
+        grams = words + [f"{a} {b}" for a, b in zip(words, words[1:], strict=False)]
+        for gram in grams:
+            digest = hashlib.sha256(gram.encode()).digest()
+            vec[int.from_bytes(digest[:2], "big") % 256] += 1.0
+        out.append(vec)
+    return out
+
+
+class CachedEmbed:
+    """File-backed embedding cache keyed by text hash, so repeated CLI
+    invocations (gate, probe, materialize) don't re-embed the whole corpus."""
+
+    def __init__(self, path: Path, base: EmbedFn):
+        self.path = path
+        self.base = base
+        self._cache: dict[str, list[float]] = {}
+        if path.exists():
+            try:
+                self._cache = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                # a concurrent writer (another farm CLI process) tore the file;
+                # a lost cache just means we re-embed - not fatal.
+                self._cache = {}
+
+    @staticmethod
+    def _key(text: str) -> str:
+        return hashlib.sha256(text.encode()).hexdigest()[:24]
+
+    def __call__(self, texts: list[str]) -> list[list[float]]:
+        missing = [t for t in texts if self._key(t) not in self._cache]
+        if missing:
+            for text, vec in zip(missing, self.base(missing), strict=True):
+                self._cache[self._key(text)] = vec
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            # atomic write: concurrent farm CLI processes share this cache file;
+            # a torn read from a half-written file would crash the whole workflow
+            # run, so serialize to a sibling temp file and rename into place.
+            # Lost updates between racing writers are acceptable; torn reads are not.
+            tmp = self.path.with_suffix(f".json.tmp.{os.getpid()}")
+            tmp.write_text(json.dumps(self._cache), encoding="utf-8")
+            os.replace(tmp, self.path)
+        return [self._cache[self._key(t)] for t in texts]

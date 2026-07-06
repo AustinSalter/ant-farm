@@ -194,3 +194,28 @@ def test_died_because_clears_on_revival_to_live():
     ])
     assert corpus.nodes[h.id].status == "live"
     assert corpus.nodes[h.id].died_because is None
+
+
+def test_hypothesis_nodes_never_merge_via_matcher():
+    # rivals on one question routinely embed above the entailment threshold;
+    # a matcher merge would alias one rival onto another, so hypothesis
+    # identity is the exact content hash only
+    a = make_node("Storage constraints bind solar growth through 2030.",
+                  type="hypothesis")
+    b = make_node("Interconnection queues bind solar growth through 2030.",
+                  type="hypothesis")
+    matcher = _StubMatcher({b.id: a.id})
+    corpus = reduce_events([node_event(a), node_event(b)], matcher=matcher)
+    assert a.id in corpus.nodes and b.id in corpus.nodes
+    assert corpus.nodes[b.id].sightings == 1
+
+
+def test_identical_hypothesis_text_still_reobserves_by_exact_id():
+    a = make_node("Storage constraints bind solar growth through 2030.",
+                  type="hypothesis")
+    again = make_node("Storage constraints bind solar growth through 2030.",
+                      type="hypothesis", vantage=V2)
+    corpus = reduce_events([node_event(a), node_event(again)],
+                           matcher=_StubMatcher({}))
+    assert len(corpus.nodes) == 1
+    assert corpus.nodes[a.id].sightings == 2
